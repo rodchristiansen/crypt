@@ -14,6 +14,7 @@ import (
 
 	"github.com/googleapis/enterprise-certificate-proxy/darwin"
 	"github.com/grahamgilbert/crypt/pkg/authmechs"
+	"github.com/grahamgilbert/crypt/pkg/logging"
 	"github.com/grahamgilbert/crypt/pkg/pref"
 	"github.com/grahamgilbert/crypt/pkg/utils"
 	"github.com/groob/plist"
@@ -52,8 +53,10 @@ func RunEscrow(r utils.Runner, p pref.PrefInterface) error {
 
 	if manageAuthMechs {
 		if err := authmechs.Ensure(r); err != nil {
+			logging.Error("Authorization mechanisms could not be ensured: %v", err)
 			return errors.Wrap(err, "failed to ensure auth mechs")
 		}
+		logging.Debug("Authorization mechanisms are in place")
 	}
 
 	removePlist, err := p.GetBool("RemovePlist")
@@ -79,8 +82,10 @@ func RunEscrow(r utils.Runner, p pref.PrefInterface) error {
 	if rotateUsedKey && validateKey && !removePlist {
 		log.Println("Checking that current key is valid.")
 		if err := rotateInvalidKey(plistPath, r, p); err != nil {
+			logging.Error("Recovery key validation failed: %v", err)
 			return errors.Wrap(err, "rotateInvalidKey")
 		}
+		logging.Debug("Recovery key validation passed or was not applicable")
 	}
 
 	var cryptData CryptData
@@ -102,6 +107,7 @@ func RunEscrow(r utils.Runner, p pref.PrefInterface) error {
 		// Not using keychain, gather the cryptData from the plist on disk.
 		// Check if plist exists
 		if _, err := os.Stat(plistPath); os.IsNotExist(err) {
+			logging.Debug("No output plist at %s, nothing to escrow", plistPath)
 			return nil
 		} else if err != nil {
 			return errors.Wrap(err, "failed to check if plist exists")
@@ -142,6 +148,7 @@ func RunEscrow(r utils.Runner, p pref.PrefInterface) error {
 		if err != nil {
 			return errors.Wrap(err, "failed to set last escrow date")
 		}
+		logging.Debug("Recorded LastEscrow in preferences")
 		return nil
 	}
 
@@ -150,14 +157,18 @@ func RunEscrow(r utils.Runner, p pref.PrefInterface) error {
 		cryptData.LastRun = time.Now()
 		cryptData.EscrowSuccess = true
 		if err := writePlist(cryptData, plistPath); err != nil {
+			logging.Error("Could not update output plist at %s: %v", plistPath, err)
 			return errors.Wrap(err, "failed to write plist")
 		}
+		logging.Info("Updated output plist at %s with escrow result", plistPath)
 	}
 
 	if removePlist {
 		if err := os.Remove(plistPath); err != nil {
+			logging.Error("Could not remove output plist at %s: %v", plistPath, err)
 			return errors.Wrap(err, "failed to remove plist")
 		}
+		logging.Info("Removed output plist at %s", plistPath)
 	}
 
 	return nil
@@ -530,14 +541,45 @@ func runCurl(configFile string, r utils.Runner, p pref.PrefInterface) (string, e
 		log.Println("Additional curl options found.. Adding to curl command")
 		args = append(args, additionalCurlOpts...)
 	}
-	args = append(args, "--config", "-")
+	// --write-out: append the HTTP status on its own line after the body so
+	// the outcome can be logged without the body or the payload.
+	args = append(args, "--config", "-", "--write-out", "\n%{http_code}")
 
 	out, err := r.Runner.RunCmdWithStdin(cmd, configFile, args...)
+	body, status := splitHTTPStatus(string(out))
 	if err != nil {
-		theErr := fmt.Errorf("stdout: %s err: %s", out, err)
-		return "", errors.Wrap(theErr, "failed to run curl")
+		theErr := fmt.Errorf("stdout: %s err: %s", body, err)
+		return "", errors.Wrap(theErr, fmt.Sprintf("failed to run curl (HTTP %s)", status))
 	}
-	return string(out), nil
+	return body, nil
+}
+
+// splitHTTPStatus separates the body from the trailing status line that
+// runCurl asks curl to write. When no status line is present the whole
+// output is returned as the body and the status is "unknown".
+func splitHTTPStatus(out string) (string, string) {
+	trimmed := strings.TrimRight(out, "\n")
+	idx := strings.LastIndex(trimmed, "\n")
+	last := trimmed
+	if idx >= 0 {
+		last = trimmed[idx+1:]
+	}
+	if len(last) == 3 && strings.Trim(last, "0123456789") == "" {
+		if idx < 0 {
+			return "", last
+		}
+		return trimmed[:idx], last
+	}
+	return out, "unknown"
+}
+
+// escrowHost returns only the host portion of the checkin URL for logging.
+func escrowHost(theURL string) string {
+	parsed, err := url.Parse(theURL)
+	if err != nil || parsed.Host == "" {
+		return "unknown host"
+	}
+	return parsed.Host
 }
 
 // escrowKey attempts to escrow a key to the server, using either mTLS or curl based on configuration.
@@ -568,12 +610,18 @@ func escrowKey(plist CryptData, r utils.Runner, p pref.PrefInterface, mTLScommon
 	}
 
 	var responseBody string
+	host := escrowHost(theURL)
+	status := "unknown"
 
 	// Determine whether to use mTLS or curl based on whether a common name is provided
 	if mTLScommonName != "" {
 		log.Printf("Using mTLS for escrow with common name: %s", mTLScommonName)
-		body, err := sendRequest(theURL, data, mTLScommonName)
+		body, code, err := sendRequest(theURL, data, mTLScommonName)
+		if code > 0 {
+			status = fmt.Sprintf("%d", code)
+		}
 		if err != nil {
+			logging.Error("Escrow for serial %s to %s failed (HTTP %s, mTLS): %v", plist.SerialNumber, host, status, err)
 			return false, errors.Wrap(err, "failed to send request with mTLS")
 		}
 		responseBody = string(body)
@@ -582,12 +630,15 @@ func escrowKey(plist CryptData, r utils.Runner, p pref.PrefInterface, mTLScommon
 		configFile := utils.BuildCurlConfigFile(map[string]string{"url": theURL, "data": data})
 		output, err := runCurl(configFile, r, p)
 		if err != nil {
+			logging.Error("Escrow for serial %s to %s failed (curl): %v", plist.SerialNumber, host, err)
 			return false, errors.Wrap(err, "failed to run curl")
 		}
+		status = "200"
 		responseBody = output
 	}
 
 	log.Println("Key escrow successful.")
+	logging.Info("Escrowed recovery key for serial %s to %s (HTTP %s)", plist.SerialNumber, host, status)
 
 	keyRotated, err := serverInitiatedRotation(responseBody, r, p)
 	if err != nil {
@@ -650,8 +701,10 @@ func serverInitiatedRotation(output string, r utils.Runner, p pref.PrefInterface
 		log.Println("Found server initiated key rotation. Removing used/invalid key.")
 		err = removeInvalidKey(outputPath, useKeychain)
 		if err != nil {
+			logging.Error("Server requested key rotation but the stored key could not be removed: %v", err)
 			return rotationCompleted, errors.Wrap(err, "failed to remove invalid key")
 		}
+		logging.Warn("Server requested key rotation, stored key removed; a new key will be generated at next login")
 		rotationCompleted = true
 	}
 
@@ -794,8 +847,9 @@ func getRecoveryKey(keyLocation string, p pref.PrefInterface) (string, error) {
 //
 // Returns:
 //   - []byte: The response body from the server.
+//   - int: The HTTP status code, or 0 when no response was received.
 //   - error: An error if the request fails or the server returns a non-200 status.
-func sendRequest(url string, data string, commonName string) ([]byte, error) {
+func sendRequest(url string, data string, commonName string) ([]byte, int, error) {
 	// Create request
 	req, err := http.NewRequest(
 		"POST",
@@ -803,7 +857,7 @@ func sendRequest(url string, data string, commonName string) ([]byte, error) {
 		strings.NewReader(data),
 	)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to create request")
+		return nil, 0, errors.Wrap(err, "failed to create request")
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -812,14 +866,14 @@ func sendRequest(url string, data string, commonName string) ([]byte, error) {
 	log.Println("Using mTLS for escrow with common name: ", commonName)
 	secureKey, err := darwin.NewSecureKey(commonName)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get secure key from keychain")
+		return nil, 0, errors.Wrap(err, "failed to get secure key from keychain")
 	}
 	defer secureKey.Close() // Make sure to close the secure key when done
 
 	// Get the certificate chain
 	certChain := secureKey.CertificateChain()
 	if len(certChain) == 0 {
-		return nil, errors.New("no certificates found in chain")
+		return nil, 0, errors.New("no certificates found in chain")
 	}
 
 	// Create TLS config with the secure key and certificates
@@ -842,20 +896,20 @@ func sendRequest(url string, data string, commonName string) ([]byte, error) {
 	// Execute request
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to execute request")
+		return nil, 0, errors.Wrap(err, "failed to execute request")
 	}
 	defer resp.Body.Close()
 
 	// Read response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to read response")
+		return nil, resp.StatusCode, errors.Wrap(err, "failed to read response")
 	}
 
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
-		return nil, errors.Errorf("server returned non-200 status: %d, body: %s",
+		return nil, resp.StatusCode, errors.Errorf("server returned non-200 status: %d, body: %s",
 			resp.StatusCode, string(body))
 	}
-	return body, nil
+	return body, resp.StatusCode, nil
 }

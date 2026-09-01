@@ -24,15 +24,22 @@ import os.log
 class Check: Crypt {
 
   @objc func run() {
-    os_log("Starting run of Crypt.Check...", log: checkLog, type: .default)
+    cryptLog("Starting run of Crypt.Check...", log: checkLog, type: .default)
 
     // check for ServerUrl
     let serverURL = (getPref(key: .ServerURL) as? NSString) ?? nil
 
     guard let username = self.username
-      else { allowLogin(); return }
+      else {
+        cryptLog("No username in the authorization context, allowing login", log: checkLog, type: .default, level: .warn)
+        allowLogin(); return
+      }
     guard let password = self.password
-      else { allowLogin(); return }
+      else {
+        cryptLog("No password in the authorization context, allowing login", log: checkLog, type: .default, level: .warn)
+        allowLogin(); return
+      }
+    cryptLog("Check mechanism running for user \(username)", log: checkLog, type: .default)
     let the_settings = NSDictionary.init(dictionary: ["Username": username, "Password": password])
     // check for SkipUsers Preference
     let skipUsers: Bool = getSkipUsers(username: username as String)
@@ -45,7 +52,7 @@ class Check: Crypt {
 
     if decrypting {
       // If we are decrypting we can't do anything so we can just log in
-      os_log("We are Decrypting! Not much we can do, exiting for safety...", log: checkLog, type: .error)
+      cryptLog("We are Decrypting! Not much we can do, exiting for safety...", log: checkLog, type: .error)
       allowLogin()
       return
     }
@@ -70,22 +77,23 @@ class Check: Crypt {
 
       if (!recoveryKeyExists && !removePlist && rotateKey) || generateKey {
         if alreadyGeneratedKey {
-          os_log("We've already generated a new key. If you wish to generate another key please remove RotatedKey from preferences...", log: checkLog, type: .default)
+          cryptLog("We've already generated a new key. If you wish to generate another key please remove RotatedKey from preferences...", log: checkLog, type: .default)
           allowLogin()
           return
         }
         // If key is missing from disk and we aren't supposed to remove it we should generate a new key...
-        os_log("Conditions for making a new key have been met. Attempting to generate a new key...", log: checkLog, type: .default)
+        cryptLog("Conditions for making a new key have been met. Attempting to generate a new key...", log: checkLog, type: .default)
         do {
-          try _ = rotateRecoveryKey(the_settings, filepath: filepath)
+          let rotated = try rotateRecoveryKey(the_settings, filepath: filepath)
+          cryptLog("Recovery key rotation \(rotated ? "succeeded" : "did not complete")", log: checkLog, type: rotated ? .default : .error)
         } catch let error as NSError {
-          os_log("Caught error trying to rotate recovery key: %{public}@", log: checkLog, type: .error, error.localizedDescription)
+          cryptLog("Caught error trying to rotate recovery key: \(error.localizedDescription)", log: checkLog, type: .error)
           allowLogin()
           return
         }
 
         if generateKey {
-          os_log("We've rotated the key and GenerateNewKey was True, setting to RotatedKey to avoid multiple generations", log: checkLog, type: .default)
+          cryptLog("We've rotated the key and GenerateNewKey was True, setting to RotatedKey to avoid multiple generations", log: checkLog, type: .default)
           // set to false for house keeping, setPref will also sync to disk
           _ = setPref(key: .RotatedKey, value: true)
         }
@@ -93,26 +101,27 @@ class Check: Crypt {
         return
       }
 
-      os_log("All checks for an encrypted machine have passed, Allowing Login...", log: checkLog, type: .default)
+      cryptLog("All checks for an encrypted machine have passed, Allowing Login...", log: checkLog, type: .default)
       allowLogin()
       return
     // end of fvEnabled
     } else if skipUsers {
-      os_log("Logged in User is in the Skip List... Not enforcing FileVault...", log: checkLog, type: .error)
+      cryptLog("Logged in User is in the Skip List... Not enforcing FileVault...", log: checkLog, type: .error, level: .warn)
 
       allowLogin()
       return
     } else if serverURL == nil {
       // Should we acutally do this?
-      os_log("Couldn't find ServerURL Pref choosing not to enable FileVault...", log: checkLog, type: .error)
+      cryptLog("Couldn't find ServerURL Pref choosing not to enable FileVault...", log: checkLog, type: .error, level: .warn)
       allowLogin()
       return
     }
-    os_log("FileVault is not enabled, attempting to enable...", log: checkLog, type: .default)
+    cryptLog("FileVault is not enabled, attempting to enable...", log: checkLog, type: .default)
     do {
-      try _ = enableFileVault(the_settings, filepath: filepath)
+      let enabled = try enableFileVault(the_settings, filepath: filepath)
+      cryptLog("FileVault enablement \(enabled ? "succeeded" : "did not complete")", log: checkLog, type: enabled ? .default : .error)
     } catch let error as NSError {
-      os_log("Caught error trying to Enable FileVault: %{public}@", log: checkLog, type: .error, String(describing: error.localizedDescription))
+      cryptLog("Caught error trying to Enable FileVault: \(error.localizedDescription)", log: checkLog, type: .error)
     }
 
     allowLogin()

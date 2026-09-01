@@ -23,3 +23,22 @@ let prefLog = OSLog(subsystem: cryptBundleID, category: "Preferences")
 let enablementLog = OSLog(subsystem: cryptBundleID, category: "Enablement")
 let coreLog = OSLog(subsystem: cryptBundleID, category: "Core")
 let checkLog = OSLog(subsystem: cryptBundleID, category: "Check")
+
+/// Logs a phase or outcome to both the unified log and the file log.
+///
+/// Use this for the lines an administrator reads to follow a login through
+/// the plugin: mechanism start, FileVault status, enablement, key rotation,
+/// where the key was stored, and errors. Keep plain `os_log` for chatter.
+/// Never pass a secret; see `FileLog`.
+///
+/// - Parameters:
+///   - message: The fully formatted message.
+///   - log: The unified log category to write to.
+///   - type: The unified log type; also decides the file level unless
+///     `level` is given.
+///   - level: Overrides the file level, for example to record a warning
+///     where the unified log has no matching type.
+func cryptLog(_ message: String, log: OSLog, type: OSLogType = .default, level: FileLogLevel? = nil) {
+  os_log("%{public}@", log: log, type: type, message)
+  FileLog.shared.write(message, level: level ?? FileLogLevel(type))
+}
