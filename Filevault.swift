@@ -60,13 +60,13 @@ func getFVEnabled() -> (encrypted: Bool, decrypting: Bool) {
   guard let output: String = String(data: data, encoding: String.Encoding.utf8)
   else { return (false, false) }
   if (output.range(of: "FileVault is On.")) != nil {
-    os_log("Filevault is On...", log: filevaultLog, type: .default)
+    cryptLog("FileVault is On...", log: filevaultLog, type: .default)
     return (true, false)
   } else if output.range(of: "Decryption in progress:") != nil {
-    os_log("FileVault Decryption in progress...", log: filevaultLog, type: .error)
+    cryptLog("FileVault Decryption in progress...", log: filevaultLog, type: .error)
     return (true, true)
   } else {
-    os_log("FileVault is not enabled...", log: filevaultLog, type: .error)
+    cryptLog("FileVault is not enabled...", log: filevaultLog, type: .error, level: .warn)
     return (false, false)
   }
 }
@@ -97,7 +97,7 @@ func enableFileVault(_ theSettings: NSDictionary, filepath: String) throws -> Bo
     task.arguments?.append("-keychain")
   }
 
-  os_log("Running /usr/bin/fdesetup %{public}@", log: filevaultLog, type: .default, String(describing: task.arguments))
+  cryptLog("Running /usr/bin/fdesetup \((task.arguments ?? []).joined(separator: " "))", log: filevaultLog, type: .default)
 
   task.standardInput = inPipe
   task.standardOutput = outPipe
@@ -117,13 +117,13 @@ func enableFileVault(_ theSettings: NSDictionary, filepath: String) throws -> Bo
 
   if task.terminationStatus != 0 {
     let termstatus = String(describing: task.terminationStatus)
-    os_log("fdesetup terminated with a NON-Zero exit status: %{public}@", log: filevaultLog, type: .error, termstatus)
+    cryptLog("fdesetup enable terminated with a NON-Zero exit status: \(termstatus)", log: filevaultLog, type: .error)
     os_log("fdesetup Standard Error: %{public}@", log: filevaultLog, type: .error, String(describing: errorMessage))
     throw FileVaultError.fdeSetupFailed(retCode: task.terminationStatus)
   }
 
   if outputData.count == 0 {
-    os_log("Found nothing in output data", log: filevaultLog, type: .error)
+    cryptLog("fdesetup enable produced no output plist", log: filevaultLog, type: .error)
     throw FileVaultError.outputPlistNull
   }
 
@@ -146,7 +146,7 @@ func enableFileVault(_ theSettings: NSDictionary, filepath: String) throws -> Bo
  - Throws: An error of type `FileVaultError` if the process fails.
  */
 func rotateRecoveryKey(_ theSettings: NSDictionary, filepath: String) throws -> Bool {
-  os_log("Attempting to Rotate Recovery Key...", log: filevaultLog, type: .default)
+  cryptLog("Attempting to Rotate Recovery Key...", log: filevaultLog, type: .default)
 
   let inputPlist = try PropertyListSerialization.data(fromPropertyList: theSettings,
                                                       format: .xml, options: 0)
@@ -173,7 +173,7 @@ func rotateRecoveryKey(_ theSettings: NSDictionary, filepath: String) throws -> 
 
   if task.terminationStatus != 0 {
     let termstatus = String(describing: task.terminationStatus)
-    os_log("Error: fdesetup terminated with a NON-Zero exit status: %{public}@", log: filevaultLog, type: .error, termstatus)
+    cryptLog("fdesetup changerecovery terminated with a NON-Zero exit status: \(termstatus)", log: filevaultLog, type: .error)
     os_log("fdesetup Standard Error: %{public}@", log: filevaultLog, type: .error, String(describing: errorMessage))
     throw FileVaultError.fdeSetupFailed(retCode: task.terminationStatus)
   }
@@ -183,7 +183,7 @@ func rotateRecoveryKey(_ theSettings: NSDictionary, filepath: String) throws -> 
   outPipe.fileHandleForReading.closeFile()
 
   if outputData.count == 0 {
-    os_log("Error: Found nothing in output data", log: filevaultLog, type: .error)
+    cryptLog("fdesetup changerecovery produced no output plist", log: filevaultLog, type: .error)
     throw FileVaultError.outputPlistNull
   }
 
@@ -240,19 +240,19 @@ private func handleFileVaultOutput(outputData: Data, filepath: String) throws ->
     options: .mutableContainersAndLeaves,
     format: &format
   ) else {
-    os_log("Error: Failed to deserialize output data", log: filevaultLog, type: .error)
+    cryptLog("Error: Failed to deserialize output data", log: filevaultLog, type: .error)
     return false
   }
 
   // Cast the outputPlist to a dictionary
   guard let dictionary = outputPlist as? [String: Any] else {
-    os_log("Error: Failed to cast the FileVault enablement output to a dictionary", log: filevaultLog, type: .error)
+    cryptLog("Error: Failed to cast the FileVault enablement output to a dictionary", log: filevaultLog, type: .error)
     return false
   }
 
   // Access the "RecoveryKey" from the dictionary we can use this to write to the keychain
   guard let recoveryKey = dictionary["RecoveryKey"] as? String else {
-    os_log("Error: Could not find 'RecoveryKey' in the output", log: filevaultLog, type: .error)
+    cryptLog("Error: Could not find 'RecoveryKey' in the output", log: filevaultLog, type: .error)
     return false
   }
 
@@ -267,10 +267,11 @@ private func handleFileVaultOutput(outputData: Data, filepath: String) throws ->
     let invisible = getPref(key: .InvisibleInKeychain) as! Bool
     let label: String = "com.grahamgilbert.crypt.recovery"
     guard syncRecoveryKeyToKeychain(label: label, recoveryKey: recoveryKey, keychain: systemKeychainPath, apps: read_apps, owners: change_apps, makeInvisible: invisible) else {
-      os_log("Error: Failed to sync recovery key to keychain.", log: filevaultLog, type: .error)
+      cryptLog("Error: Failed to sync recovery key to keychain.", log: filevaultLog, type: .error)
       return false
     }
 
+    cryptLog("Stored recovery key in the system keychain, queued escrow for next checkin", log: filevaultLog, type: .default)
     // We should clear the LastEscrow pref value so we queue up a sync at first run of checkin.
     _ = setPref(key: .LastEscrow, value: Date(timeIntervalSince1970: 0))
     return true
@@ -279,9 +280,9 @@ private func handleFileVaultOutput(outputData: Data, filepath: String) throws ->
   // if we aren't using the keychain write the data to disk.
   do {
     try (outputPlist as! NSDictionary).write(to: URL(filePath: filepath, directoryHint: .notDirectory))
-    os_log("Successfully wrote output plist to %{public}@", log: filevaultLog, type: .default, filepath)
+    cryptLog("Successfully wrote output plist to \(filepath)", log: filevaultLog, type: .default)
   } catch {
-    os_log("Error writing output plist to disk: %{public}@", log: filevaultLog, type: .error, error.localizedDescription)
+    cryptLog("Error writing output plist to disk: \(error.localizedDescription)", log: filevaultLog, type: .error)
     return false
   }
 

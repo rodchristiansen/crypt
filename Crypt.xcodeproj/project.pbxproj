@@ -14,6 +14,7 @@
 		D50ACC832A6C79D200F8E62D /* authmod in CopyFiles */ = {isa = PBXBuildFile; fileRef = D50ACC792A6C797E00F8E62D /* authmod */; settings = {ATTRIBUTES = (CodeSignOnCopy, ); }; };
 		D50F65B12B8CE9C4008887DB /* Keychain.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50F65B02B8CE9C4008887DB /* Keychain.swift */; };
 		D50F65B32B8CEF27008887DB /* Logging.swift in Sources */ = {isa = PBXBuildFile; fileRef = D50F65B22B8CEF27008887DB /* Logging.swift */; };
+		D5F11E0000000000000A0002 /* FileLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5F11E0000000000000A0001 /* FileLog.swift */; };
 		D54BDA342C31F4190028425F /* Filevault.swift in Sources */ = {isa = PBXBuildFile; fileRef = D54BDA332C31F4190028425F /* Filevault.swift */; };
 		D579C9312D309A1F00FB6802 /* ArgumentParser in Frameworks */ = {isa = PBXBuildFile; productRef = D579C9302D309A1F00FB6802 /* ArgumentParser */; };
 		D5C75AA72D4C06E900C77CA0 /* Core.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5C75AA62D4C06E900C77CA0 /* Core.swift */; };
@@ -63,6 +64,7 @@
 		D50ACC7B2A6C797E00F8E62D /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		D50F65B02B8CE9C4008887DB /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
 		D50F65B22B8CEF27008887DB /* Logging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logging.swift; sourceTree = "<group>"; };
+		D5F11E0000000000000A0001 /* FileLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileLog.swift; sourceTree = "<group>"; };
 		D54BDA332C31F4190028425F /* Filevault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Filevault.swift; sourceTree = "<group>"; };
 		D5C75AA62D4C06E900C77CA0 /* Core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -93,6 +95,7 @@
 				1A8643111F15292200108C19 /* Preferences.swift */,
 				D50F65B02B8CE9C4008887DB /* Keychain.swift */,
 				D50F65B22B8CEF27008887DB /* Logging.swift */,
+				D5F11E0000000000000A0001 /* FileLog.swift */,
 				D54BDA332C31F4190028425F /* Filevault.swift */,
 			);
 			name = Utility;
@@ -268,6 +271,7 @@
 			files = (
 				D2D31D5F1C2303F500839D93 /* Check.swift in Sources */,
 				D50F65B32B8CEF27008887DB /* Logging.swift in Sources */,
+				D5F11E0000000000000A0002 /* FileLog.swift in Sources */,
 				1A8643121F15292200108C19 /* Preferences.swift in Sources */,
 				D54BDA342C31F4190028425F /* Filevault.swift in Sources */,
 				D2D31D5D1C2303F500839D93 /* CryptAuthPlugin.m in Sources */,

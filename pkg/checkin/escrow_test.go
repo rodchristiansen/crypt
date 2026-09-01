@@ -465,7 +465,7 @@ func TestSendRequestErrorCases(t *testing.T) {
 
 	t.Run("invalid URL", func(t *testing.T) {
 		// Test with invalid URL to trigger request creation error
-		_, err := sendRequest(":", "data", "commonName")
+		_, _, err := sendRequest(":", "data", "commonName")
 		assert.Error(t, err)
 	})
 }
@@ -503,4 +503,24 @@ func TestEscrowKeyConditionalBehavior(t *testing.T) {
 		// since we're not actually making real network calls
 		assert.NotNil(t, err)
 	})
+}
+
+func TestSplitHTTPStatus(t *testing.T) {
+	body, status := splitHTTPStatus("{\"rotation_required\": false}\n200")
+	assert.Equal(t, "{\"rotation_required\": false}", body)
+	assert.Equal(t, "200", status)
+
+	body, status = splitHTTPStatus("\n403")
+	assert.Equal(t, "", body)
+	assert.Equal(t, "403", status)
+
+	body, status = splitHTTPStatus("{\"rotation_required\": false}")
+	assert.Equal(t, "{\"rotation_required\": false}", body)
+	assert.Equal(t, "unknown", status)
+}
+
+func TestEscrowHost(t *testing.T) {
+	assert.Equal(t, "crypt.example.com", escrowHost("https://crypt.example.com/checkin/"))
+	assert.Equal(t, "crypt.example.com:8443", escrowHost("https://crypt.example.com:8443/checkin/"))
+	assert.Equal(t, "unknown host", escrowHost(":"))
 }

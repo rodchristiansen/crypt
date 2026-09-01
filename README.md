@@ -151,6 +151,20 @@ A boolean value indicating that Crypt should generate a new recovery key during 
 $ sudo defaults write /Library/Preferences/com.grahamgilbert.crypt GenerateNewKey -bool TRUE
 ```
 
+## Logging
+
+Both the authorization plugin and the `checkin` daemon write to the unified log under the `com.grahamgilbert.crypt` subsystem, and `checkin` still writes its stdout and stderr to `/var/log/crypt.log` through launchd.
+
+They also append a plain text log that survives the unified log's retention:
+
+```
+/Library/Managed Encryption/logs/crypt.log
+```
+
+Each line is `[yyyy-MM-dd HH:mm:ss] LEVEL  message` in local time, with the level (`DEBUG`, `INFO`, `WARN`, `ERROR`) padded to five characters. The file rolls to `crypt-yyyy-MM-dd.log` on the first write of a new day and the newest thirty rolled files are kept. The directory is created `0755 root:wheel` when missing; if it cannot be written (for example when running as a normal user) the log falls back to `~/Library/Logs/crypt.log` with the same rules.
+
+The file records phases and outcomes only: the Check mechanism running, FileVault status, enablement and key rotation results, where the key was stored, checkin start and finish, and each escrow attempt with the serial number, server host and HTTP status. Recovery keys, escrow payloads and passwords are never written.
+
 ## Uninstalling
 
 The install package will modify the Authorization DB - you need to remove these entries before removing the Crypt Authorization Plugin. To do this, use the `-uninstall` flag in the `checkin` binary (`sudo /Library/Crypt/checkin -uninstall`).
