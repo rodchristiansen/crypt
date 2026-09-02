@@ -145,7 +145,7 @@ func (w *Writer) emit(level, text string) {
 		_, _ = w.file.WriteString(record)
 	}
 	if w.echo {
-		fmt.Fprintln(os.Stdout, text)
+		_, _ = fmt.Fprintln(os.Stdout, text)
 	}
 }
 
