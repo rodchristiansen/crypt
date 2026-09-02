@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Version from tag
+        id: ver
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the authorization plugin (unsigned)
+        run: |
+          xcodebuild -project Crypt.xcodeproj -scheme Crypt -configuration Release \
+            -derivedDataPath ./build \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Build the checkin binary (universal)
+        env:
+          VERSION: ${{ steps.ver.outputs.VERSION }}
+        run: |
+          set -euo pipefail
+          export MACOSX_DEPLOYMENT_TARGET=13.0 CGO_ENABLED=1 GOOS=darwin
+          GOARCH=arm64 go build -ldflags "-X main.version=${VERSION}" -o build/checkin.arm64 ./cmd
+          GOARCH=amd64 go build -ldflags "-X main.version=${VERSION}" -o build/checkin.amd64 ./cmd
+          lipo -create -output build/checkin build/checkin.arm64 build/checkin.amd64
+          chmod 755 build/checkin
+
+      - name: Build unsigned package
+        env:
+          VERSION: ${{ steps.ver.outputs.VERSION }}
+        run: |
+          set -euo pipefail
+          root="$PWD/pkg/root"; scripts="$PWD/pkg/scripts"
+          rm -rf "$PWD/pkg" artifacts && mkdir -p "$root/Library/Security/SecurityAgentPlugins" "$root/Library/Crypt" "$root/Library/LaunchDaemons" "$scripts" artifacts
+          cp -R build/Build/Products/Release/Crypt.bundle "$root/Library/Security/SecurityAgentPlugins/Crypt.bundle"
+          cp build/checkin "$root/Library/Crypt/checkin"
+          cp Package/com.grahamgilbert.crypt.plist "$root/Library/LaunchDaemons/com.grahamgilbert.crypt.plist"
+          chmod 644 "$root/Library/LaunchDaemons/com.grahamgilbert.crypt.plist"
+          install -m 755 Package/preinstall Package/postinstall "$scripts/"
+          pkgbuild --root "$root" --scripts "$scripts" --identifier com.grahamgilbert.Crypt --version "$VERSION" \
+            --install-location / "artifacts/Crypt.pkg"
+          sed "s/replace_version/${VERSION}/g" Package/Distribution-Template > artifacts/Distribution
+          productbuild --distribution artifacts/Distribution --package-path artifacts "artifacts/Crypt-${VERSION}.pkg"
+          rm -f artifacts/Crypt.pkg artifacts/Distribution
+          shasum -a 256 "artifacts/Crypt-${VERSION}.pkg" > "artifacts/Crypt-${VERSION}.pkg.sha256"
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Crypt ${{ steps.ver.outputs.VERSION }}
+          body: Unsigned package built from this tag. Sign and notarize it with your own Developer ID before deployment.
+          files: |
+            artifacts/Crypt-${{ steps.ver.outputs.VERSION }}.pkg
+            artifacts/Crypt-${{ steps.ver.outputs.VERSION }}.pkg.sha256

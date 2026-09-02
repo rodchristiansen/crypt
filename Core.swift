@@ -28,37 +28,37 @@ class Crypt: NSObject {
 
   // init the class with a MechanismRecord
   @objc init(mechanism: UnsafePointer<MechanismRecord>) {
-    os_log("initWithMechanismRecord", log: coreLog, type: .debug)
+    cryptLog("initWithMechanismRecord", log: coreLog, type: .debug)
     self.mechanism = mechanism
   }
 
   // Allow the login. End of the mechanism
   func allowLogin() {
-    os_log("called allowLogin", log: coreLog, type: .default)
+    cryptLog("called allowLogin", log: coreLog, type: .default)
     _ = self.mechanism.pointee.fPlugin.pointee.fCallbacks.pointee.SetResult(
       mechanism.pointee.fEngine, AuthorizationResult.allow)
   }
 
   private func getContextData(key: AuthorizationString) -> NSData? {
-    os_log("getContextData called", log: coreLog, type: .debug)
+    cryptLog("getContextData called", log: coreLog, type: .debug)
     var value: UnsafePointer<AuthorizationValue>?
     let data = withUnsafeMutablePointer(to: &value) { (ptr: UnsafeMutablePointer) -> NSData? in
       var flags = AuthorizationContextFlags()
       if self.mechanism.pointee.fPlugin.pointee.fCallbacks.pointee.GetContextValue(
         self.mechanism.pointee.fEngine, key, &flags, ptr) != errAuthorizationSuccess {
-        os_log("GetContextValue failed", log: coreLog, type: .error)
+        cryptLog("GetContextValue failed", log: coreLog, type: .error)
         return nil
       }
       guard let length = ptr.pointee?.pointee.length else {
-        os_log("length failed to unwrap", log: coreLog, type: .error)
+        cryptLog("length failed to unwrap", log: coreLog, type: .error)
         return nil
       }
       guard let buffer = ptr.pointee?.pointee.data else {
-        os_log("data failed to unwrap", log: coreLog, type: .error)
+        cryptLog("data failed to unwrap", log: coreLog, type: .error)
         return nil
       }
       if length == 0 {
-        os_log("length is 0", log: coreLog, type: .error)
+        cryptLog("length is 0", log: coreLog, type: .error)
         return nil
       }
       return NSData.init(bytes: buffer, length: length)
@@ -68,7 +68,7 @@ class Crypt: NSObject {
 
   var username: NSString? {
     get {
-      os_log("Requesting username...", log: coreLog, type: .debug)
+      cryptLog("Requesting username...", log: coreLog, type: .debug)
       guard let data = getContextData(key: kAuthorizationEnvironmentUsername) else {
         return nil
       }
@@ -82,7 +82,7 @@ class Crypt: NSObject {
 
   var password: NSString? {
     get {
-      os_log("Requesting password...", log: coreLog, type: .debug)
+      cryptLog("Requesting password...", log: coreLog, type: .debug)
       guard let data = getContextData(key: kAuthorizationEnvironmentPassword) else {
         return nil
       }

@@ -13,9 +13,9 @@
 	<key>RunAtLoad</key>
 	<true/>
 	<key>StandardErrorPath</key>
-	<string>/var/log/crypt.log</string>
+	<string>/Library/Managed Encryption/logs/launchd-com.grahamgilbert.crypt.log</string>
 	<key>StandardOutPath</key>
-	<string>/var/log/crypt.log</string>
+	<string>/Library/Managed Encryption/logs/launchd-com.grahamgilbert.crypt.log</string>
 	<key>StartInterval</key>
 	<integer>120</integer>
 </dict>

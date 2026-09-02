@@ -67,20 +67,20 @@ enum Preference: String {
  */
 func getPref(key: Preference) -> Any? {
 
-  os_log("Attempting to retrieve value for key: %{public}@", log: prefLog, type: .info, key.rawValue)
+  cryptLog("Attempting to retrieve value for key: %{public}@", log: prefLog, type: .info, key.rawValue)
 
   // Get the value from the application preferences
   if let value = CFPreferencesCopyAppValue(key.rawValue as CFString, cryptBundleID as CFString) {
-    os_log("Value found in application preferences for key: %{public}@", log: prefLog, type: .info, key.rawValue)
+    cryptLog("Value found in application preferences for key: %{public}@", log: prefLog, type: .info, key.rawValue)
     return value
   }
 
   // If value is nil, check if the key exists in the default preferences dictionary
   if let defaultValue = Preference.defaultPreferences[key] {
-    os_log("Value found in default preferences for key: %{public}@", log: prefLog, type: .info, key.rawValue)
+    cryptLog("Value found in default preferences for key: %{public}@", log: prefLog, type: .info, key.rawValue)
     return defaultValue
   }
-  os_log("Did not find a default for key: %{public}@, returning nil", log: prefLog, type: .info, key.rawValue)
+  cryptLog("Did not find a default for key: %{public}@, returning nil", log: prefLog, type: .info, key.rawValue)
   return nil
 }
 
@@ -95,21 +95,21 @@ func getPref(key: Preference) -> Any? {
  */
 func getManagedPref(key: Preference) -> (Any?, Bool?) {
 
-  os_log("Checking %{public}@ preference domain for managed preference.", type: .info, cryptBundleID)
+  cryptLog("Checking %{public}@ preference domain for managed preference.", type: .info, cryptBundleID)
 
   if let preference = getPref(key: key) as Any? {
-    os_log("Found preference: %{public}@ with value: %{public}@", log: prefLog, type: .info, key.rawValue, String(describing: preference))
+    cryptLog("Found preference: %{public}@ with value: %{public}@", log: prefLog, type: .info, key.rawValue, String(describing: preference))
 
     if CFPreferencesAppValueIsForced(key.rawValue as CFString, cryptBundleID as CFString) {
-      os_log("Preference %{public}@ is enforced.", log: prefLog, type: .info, key.rawValue)
+      cryptLog("Preference %{public}@ is enforced.", log: prefLog, type: .info, key.rawValue)
       return (preference, true)
     }
 
-    os_log("Preference %{public}@ is not enforced.", log: prefLog, type: .info, key.rawValue)
+    cryptLog("Preference %{public}@ is not enforced.", log: prefLog, type: .info, key.rawValue)
     return (preference, false)
   }
 
-  os_log("No preference found for key: %{public}@", log: prefLog, type: .info, key.rawValue)
+  cryptLog("No preference found for key: %{public}@", log: prefLog, type: .info, key.rawValue)
   return (nil, nil)
 }
 

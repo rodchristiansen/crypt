@@ -39,17 +39,17 @@ func checkAuthRestart() -> Bool {
   let outputData = outPipe.fileHandleForReading.availableData
   let outputString = String(data: outputData, encoding: String.Encoding.utf8) ?? ""
   if outputString.range(of: "true") != nil {
-    os_log("Authrestart capability is 'true', will authrestart as appropriate", log: filevaultLog, type: .default)
+    cryptLog("Authrestart capability is 'true', will authrestart as appropriate", log: filevaultLog, type: .default)
     return true
   } else {
-    os_log("Authrestart capability is 'false', reverting to standard reboot", log: filevaultLog, type: .default)
+    cryptLog("Authrestart capability is 'false', reverting to standard reboot", log: filevaultLog, type: .default)
     return false
   }
 }
 
 // Check if some information on filevault whether it's encrypted and if decrypting.
 func getFVEnabled() -> (encrypted: Bool, decrypting: Bool) {
-  os_log("Checking the current status of FileVault..", log: filevaultLog, type: .default)
+  cryptLog("Checking the current status of FileVault..", log: filevaultLog, type: .default)
   let task = Process()
   task.launchPath = "/usr/bin/fdesetup"
   task.arguments = ["status"]
@@ -60,19 +60,19 @@ func getFVEnabled() -> (encrypted: Bool, decrypting: Bool) {
   guard let output: String = String(data: data, encoding: String.Encoding.utf8)
   else { return (false, false) }
   if (output.range(of: "FileVault is On.")) != nil {
-    os_log("Filevault is On...", log: filevaultLog, type: .default)
+    cryptLog("Filevault is On...", log: filevaultLog, type: .default)
     return (true, false)
   } else if output.range(of: "Decryption in progress:") != nil {
-    os_log("FileVault Decryption in progress...", log: filevaultLog, type: .error)
+    cryptLog("FileVault Decryption in progress...", log: filevaultLog, type: .error)
     return (true, true)
   } else {
-    os_log("FileVault is not enabled...", log: filevaultLog, type: .error)
+    cryptLog("FileVault is not enabled...", log: filevaultLog, type: .error)
     return (false, false)
   }
 }
 
 func enableFileVault(_ theSettings: NSDictionary, filepath: String) throws -> Bool {
-  os_log("Attempting to enable FileVault", log: filevaultLog, type: .default)
+  cryptLog("Attempting to enable FileVault", log: filevaultLog, type: .default)
   let inputPlist = try PropertyListSerialization.data(fromPropertyList: theSettings,
                                                       format: PropertyListSerialization.PropertyListFormat.xml, options: 0)
 
@@ -86,18 +86,18 @@ func enableFileVault(_ theSettings: NSDictionary, filepath: String) throws -> Bo
 
 //  // check if we should do an authrestart on enablement
 //  if checkAuthRestart() {
-//    os_log("adding -authrestart flag at index 1 of our task arguments...", log: filevaultLog, type: .default)
+//    cryptLog("adding -authrestart flag at index 1 of our task arguments...", log: filevaultLog, type: .default)
 //    task.arguments?.insert("-authrestart", at: 1)
 //  }
 
   // if there's an IRK, need to add the -keychain argument to keep us from failing.
   let instKeyPath = "/Library/Keychains/FileVaultMaster.keychain"
   if checkFileExists(path: instKeyPath) {
-    os_log("Appending -keychain to the end of our task arguments...", log: filevaultLog, type: .default)
+    cryptLog("Appending -keychain to the end of our task arguments...", log: filevaultLog, type: .default)
     task.arguments?.append("-keychain")
   }
 
-  os_log("Running /usr/bin/fdesetup %{public}@", log: filevaultLog, type: .default, String(describing: task.arguments))
+  cryptLog("Running /usr/bin/fdesetup %{public}@", log: filevaultLog, type: .default, String(describing: task.arguments))
 
   task.standardInput = inPipe
   task.standardOutput = outPipe
@@ -107,7 +107,7 @@ func enableFileVault(_ theSettings: NSDictionary, filepath: String) throws -> Bo
   inPipe.fileHandleForWriting.closeFile()
   task.waitUntilExit()
 
-  os_log("Trying to get output data", log: filevaultLog, type: .default)
+  cryptLog("Trying to get output data", log: filevaultLog, type: .default)
   let outputData = outPipe.fileHandleForReading.readDataToEndOfFile()
   outPipe.fileHandleForReading.closeFile()
 
@@ -117,13 +117,13 @@ func enableFileVault(_ theSettings: NSDictionary, filepath: String) throws -> Bo
 
   if task.terminationStatus != 0 {
     let termstatus = String(describing: task.terminationStatus)
-    os_log("fdesetup terminated with a NON-Zero exit status: %{public}@", log: filevaultLog, type: .error, termstatus)
-    os_log("fdesetup Standard Error: %{public}@", log: filevaultLog, type: .error, String(describing: errorMessage))
+    cryptLog("fdesetup terminated with a NON-Zero exit status: %{public}@", log: filevaultLog, type: .error, termstatus)
+    cryptLog("fdesetup Standard Error: %{public}@", log: filevaultLog, type: .error, String(describing: errorMessage))
     throw FileVaultError.fdeSetupFailed(retCode: task.terminationStatus)
   }
 
   if outputData.count == 0 {
-    os_log("Found nothing in output data", log: filevaultLog, type: .error)
+    cryptLog("Found nothing in output data", log: filevaultLog, type: .error)
     throw FileVaultError.outputPlistNull
   }
 
@@ -146,7 +146,7 @@ func enableFileVault(_ theSettings: NSDictionary, filepath: String) throws -> Bo
  - Throws: An error of type `FileVaultError` if the process fails.
  */
 func rotateRecoveryKey(_ theSettings: NSDictionary, filepath: String) throws -> Bool {
-  os_log("Attempting to Rotate Recovery Key...", log: filevaultLog, type: .default)
+  cryptLog("Attempting to Rotate Recovery Key...", log: filevaultLog, type: .default)
 
   let inputPlist = try PropertyListSerialization.data(fromPropertyList: theSettings,
                                                       format: .xml, options: 0)
@@ -173,17 +173,17 @@ func rotateRecoveryKey(_ theSettings: NSDictionary, filepath: String) throws -> 
 
   if task.terminationStatus != 0 {
     let termstatus = String(describing: task.terminationStatus)
-    os_log("Error: fdesetup terminated with a NON-Zero exit status: %{public}@", log: filevaultLog, type: .error, termstatus)
-    os_log("fdesetup Standard Error: %{public}@", log: filevaultLog, type: .error, String(describing: errorMessage))
+    cryptLog("Error: fdesetup terminated with a NON-Zero exit status: %{public}@", log: filevaultLog, type: .error, termstatus)
+    cryptLog("fdesetup Standard Error: %{public}@", log: filevaultLog, type: .error, String(describing: errorMessage))
     throw FileVaultError.fdeSetupFailed(retCode: task.terminationStatus)
   }
 
-  os_log("Trying to get output data", log: filevaultLog, type: .default)
+  cryptLog("Trying to get output data", log: filevaultLog, type: .default)
   let outputData = outPipe.fileHandleForReading.readDataToEndOfFile()
   outPipe.fileHandleForReading.closeFile()
 
   if outputData.count == 0 {
-    os_log("Error: Found nothing in output data", log: filevaultLog, type: .error)
+    cryptLog("Error: Found nothing in output data", log: filevaultLog, type: .error)
     throw FileVaultError.outputPlistNull
   }
 
@@ -192,13 +192,13 @@ func rotateRecoveryKey(_ theSettings: NSDictionary, filepath: String) throws -> 
 }
 
 func checkFileExists(path: String) -> Bool {
-  os_log("Checking to see if %{public}@ exists...", log: filevaultLog, type: .default, String(describing: path))
+  cryptLog("Checking to see if %{public}@ exists...", log: filevaultLog, type: .default, String(describing: path))
   let fm = FileManager.default
   if fm.fileExists(atPath: path) {
-    os_log("%{public}@ exists...", log: filevaultLog, type: .default, String(describing: path))
+    cryptLog("%{public}@ exists...", log: filevaultLog, type: .default, String(describing: path))
     return true
   } else {
-    os_log("%{public}@ does NOT exist...", log: filevaultLog, type: .default, String(describing: path))
+    cryptLog("%{public}@ does NOT exist...", log: filevaultLog, type: .default, String(describing: path))
     return false
   }
 }
@@ -210,11 +210,11 @@ func hasRecoveryKey(path: String, useKeychain: Bool) -> Bool {
 
   let label = "com.grahamgilbert.crypt.recovery"
   guard let recoveryKey = getPasswordFromKeychain(label: label) else {
-    os_log("Recovery Key NOT found in keychain...", log: filevaultLog, type: .default)
+    cryptLog("Recovery Key NOT found in keychain...", log: filevaultLog, type: .default)
     return false
   }
 
-  os_log("Recovery Key found in keychain...", log: filevaultLog, type: .default)
+  cryptLog("Recovery Key found in keychain...", log: filevaultLog, type: .default)
   return true
 }
 
@@ -240,19 +240,19 @@ private func handleFileVaultOutput(outputData: Data, filepath: String) throws ->
     options: .mutableContainersAndLeaves,
     format: &format
   ) else {
-    os_log("Error: Failed to deserialize output data", log: filevaultLog, type: .error)
+    cryptLog("Error: Failed to deserialize output data", log: filevaultLog, type: .error)
     return false
   }
 
   // Cast the outputPlist to a dictionary
   guard let dictionary = outputPlist as? [String: Any] else {
-    os_log("Error: Failed to cast the FileVault enablement output to a dictionary", log: filevaultLog, type: .error)
+    cryptLog("Error: Failed to cast the FileVault enablement output to a dictionary", log: filevaultLog, type: .error)
     return false
   }
 
   // Access the "RecoveryKey" from the dictionary we can use this to write to the keychain
   guard let recoveryKey = dictionary["RecoveryKey"] as? String else {
-    os_log("Error: Could not find 'RecoveryKey' in the output", log: filevaultLog, type: .error)
+    cryptLog("Error: Could not find 'RecoveryKey' in the output", log: filevaultLog, type: .error)
     return false
   }
 
@@ -267,7 +267,7 @@ private func handleFileVaultOutput(outputData: Data, filepath: String) throws ->
     let invisible = getPref(key: .InvisibleInKeychain) as! Bool
     let label: String = "com.grahamgilbert.crypt.recovery"
     guard syncRecoveryKeyToKeychain(label: label, recoveryKey: recoveryKey, keychain: systemKeychainPath, apps: read_apps, owners: change_apps, makeInvisible: invisible) else {
-      os_log("Error: Failed to sync recovery key to keychain.", log: filevaultLog, type: .error)
+      cryptLog("Error: Failed to sync recovery key to keychain.", log: filevaultLog, type: .error)
       return false
     }
 
@@ -279,9 +279,9 @@ private func handleFileVaultOutput(outputData: Data, filepath: String) throws ->
   // if we aren't using the keychain write the data to disk.
   do {
     try (outputPlist as! NSDictionary).write(to: URL(filePath: filepath, directoryHint: .notDirectory))
-    os_log("Successfully wrote output plist to %{public}@", log: filevaultLog, type: .default, filepath)
+    cryptLog("Successfully wrote output plist to %{public}@", log: filevaultLog, type: .default, filepath)
   } catch {
-    os_log("Error writing output plist to disk: %{public}@", log: filevaultLog, type: .error, error.localizedDescription)
+    cryptLog("Error writing output plist to disk: %{public}@", log: filevaultLog, type: .error, error.localizedDescription)
     return false
   }
 
@@ -304,20 +304,20 @@ private func getUsedKey() -> Bool {
 func trim_string(_ the_string: String) -> String {
   let output = the_string.trimmingCharacters(
     in: CharacterSet.whitespacesAndNewlines)
-  os_log("Trimming %{public}@ to %{public}@", log: checkLog, type: .default, String(describing: the_string), String(describing: output))
+  cryptLog("Trimming %{public}@ to %{public}@", log: checkLog, type: .default, String(describing: the_string), String(describing: output))
   return output
 }
 
 func getSkipUsers(username: String) -> Bool {
-  os_log("Checking for any SkipUsers...", log: checkLog, type: .default)
+  cryptLog("Checking for any SkipUsers...", log: checkLog, type: .default)
 
   if username as String == "_mbsetupuser" {
-    os_log("User is _mbsetupuser... Need to Skip...", log: checkLog, type: .error)
+    cryptLog("User is _mbsetupuser... Need to Skip...", log: checkLog, type: .error)
     return true
   }
 
   if username as String == "root" {
-    os_log("User is root... Need to Skip...", log: checkLog, type: .error)
+    cryptLog("User is root... Need to Skip...", log: checkLog, type: .error)
     return true
   }
   if let skipUsers = getPref(key: .SkipUsers) as? [String] {
