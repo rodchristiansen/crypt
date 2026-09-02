@@ -47,8 +47,6 @@ clean-crypt:
 
 pack-plugin: build l_private_etc
 	@sudo ${RM} -rf ${WORK_D}
-	@sudo mkdir -p ${WORK_D}/private/etc/newsyslog.d
-	@sudo ${CP} Package/newsyslog.d/crypt.conf ${WORK_D}/private/etc/newsyslog.d/crypt.conf
 	@sudo mkdir -p ${WORK_D}/Library/Security/SecurityAgentPlugins
 	@sudo ${CP} -R build/Build/Products/Release/Crypt.bundle ${WORK_D}/Library/Security/SecurityAgentPlugins/Crypt.bundle
 

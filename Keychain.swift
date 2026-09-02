@@ -78,7 +78,7 @@ extension Data {
 /// and provides a fallback message for unrecognized or non-translatable error codes.
 public func translateErrCode(_ status: OSStatus) -> String {
   // converts a keychain OSStatus error code into human readable string.
-  os_log("Attempting to translate Error Code: %{public}@",
+  cryptLog("Attempting to translate Error Code: %{public}@",
          log: keychainLog, type: .default, String(describing: status))
   let message = SecCopyErrorMessageString(status, nil)
   return (message as? String) ?? "Unknown status: \(status)"
@@ -110,7 +110,7 @@ func addStringToKeychain(stringToAdd item: String, withLabel label: String, keyc
     return false
   }
 
-  os_log("Attempting to add String to KeyChain with label: %{public}s", log: keychainLog, type: .default, label)
+  cryptLog("Attempting to add String to KeyChain with label: %{public}s", log: keychainLog, type: .default, label)
   let addition = item.data(using: String.Encoding.utf8)!
   var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                               kSecAttrLabel as String: label,
@@ -130,7 +130,7 @@ func addStringToKeychain(stringToAdd item: String, withLabel label: String, keyc
   let status = SecItemAdd(query as CFDictionary, nil)
 
   if status != errSecSuccess {
-    os_log("Failed to add String to KeyChain with Error: %{public}s", log: keychainLog,
+    cryptLog("Failed to add String to KeyChain with Error: %{public}s", log: keychainLog,
            type: .error, translateErrCode(status))
     return false
   }
@@ -155,14 +155,14 @@ func addStringToKeychain(stringToAdd item: String, withLabel label: String, keyc
 /// The function does not throw Swift-level errors but uses `os_log` for logging and
 /// diagnostics, particularly when the keychain cannot be opened or when errors are encountered.
 func getSecKeychain(path: String) -> SecKeychain? {
-  os_log("Fetching keychain at path: [%{public}s], with getSecKeychain.", log: keychainLog, type: .default, path)
+  cryptLog("Fetching keychain at path: [%{public}s], with getSecKeychain.", log: keychainLog, type: .default, path)
 
   var keychain: SecKeychain?
 
   let openStatus = SecKeychainOpen(path, &keychain)
 
   if openStatus != kOSReturnSuccess {
-    os_log("Failed to open keychain with Error: %{public}s", log: keychainLog,
+    cryptLog("Failed to open keychain with Error: %{public}s", log: keychainLog,
            type: .error, translateErrCode(openStatus))
     return nil
   }
@@ -206,7 +206,7 @@ func getSecKeychain(path: String) -> SecKeychain? {
 /// ```
 func syncRecoveryKeyToKeychain(label: String, recoveryKey: String, keychain: String, apps: [String], owners: [String], makeInvisible: Bool = true) -> Bool {
 
-  os_log("Starting user info sync of item label: [%{public}s] to the keychain: [%{public}s].", log: keychainLog, type: .default, label, keychain)
+  cryptLog("Starting user info sync of item label: [%{public}s] to the keychain: [%{public}s].", log: keychainLog, type: .default, label, keychain)
 
   // get a SecKeychain reference so we know which keychain to put the info in.
   guard let secKeychain = getSecKeychain(path: keychain) else {
@@ -223,24 +223,24 @@ func syncRecoveryKeyToKeychain(label: String, recoveryKey: String, keychain: Str
 
     // check to see if the stored key matches our current recovery key. It should almost never match.
     if storedRecoveryKey != recoveryKey {
-      os_log("Stored recovery key does not match our recovery key. Need to update.", log: keychainLog, type: .default)
+      cryptLog("Stored recovery key does not match our recovery key. Need to update.", log: keychainLog, type: .default)
 
       needToSyncRecoveryKey = true
     }
 
     if !needToSyncRecoveryKey {
-      os_log("Stored recovery key matches our recovery key. No need to update.", log: keychainLog, type: .default)
+      cryptLog("Stored recovery key matches our recovery key. No need to update.", log: keychainLog, type: .default)
       return true
     }
   }
 
   //
   if needToDeleteAndReaddKey {
-    os_log("Found stored recovery key. Need to delete and readd.", log: keychainLog, type: .default)
+    cryptLog("Found stored recovery key. Need to delete and readd.", log: keychainLog, type: .default)
     let deleteStatus = deletePasswordByLabel(inKeychain: secKeychain, withLabel: label)
 
     if deleteStatus != true {
-      os_log("Failed to delete our user info of item label: [%{public}s] from the keychain: [%{public}s].", log: keychainLog, type: .error, label, keychain)
+      cryptLog("Failed to delete our user info of item label: [%{public}s] from the keychain: [%{public}s].", log: keychainLog, type: .error, label, keychain)
       return false
     }
   }
@@ -255,11 +255,11 @@ func syncRecoveryKeyToKeychain(label: String, recoveryKey: String, keychain: Str
   let addStringStatus = addStringToKeychain(stringToAdd: recoveryKey, withLabel: label, keychain: keychain, isInvisible: makeInvisible, withAccess: recoveryKeyAccess)
 
   if addStringStatus != true {
-    os_log("Failed to add our user info of item label: [%{public}s] to the keychain: [%{public}s].", log: keychainLog, type: .error, label, keychain)
+    cryptLog("Failed to add our user info of item label: [%{public}s] to the keychain: [%{public}s].", log: keychainLog, type: .error, label, keychain)
     return false
   }
 
-  os_log("Successfully added recovery key with label: [%{public}s] to the keychain: [%{public}s].", log: keychainLog, type: .default, label, keychain)
+  cryptLog("Successfully added recovery key with label: [%{public}s] to the keychain: [%{public}s].", log: keychainLog, type: .default, label, keychain)
   return true
 
 }
@@ -299,23 +299,23 @@ func getPasswordFromKeychain(label: String, keyChain: SecKeychain? = nil) -> Str
 
   var item: CFTypeRef?
 
-  os_log("Looking for password in keychain for label: [%{public}@].", log: keychainLog, type: .default, label)
+  cryptLog("Looking for password in keychain for label: [%{public}@].", log: keychainLog, type: .default, label)
   let queryStatus = SecItemCopyMatching(query as CFDictionary, &item)
 
   if queryStatus != errSecSuccess {
     let translatedCode = translateErrCode(queryStatus)
-    os_log("Could not find password in keycahin for label: [%{public}@] with message: [%{public}@]", log: keychainLog, type: .default, label, translatedCode)
+    cryptLog("Could not find password in keycahin for label: [%{public}@] with message: [%{public}@]", log: keychainLog, type: .default, label, translatedCode)
   }
 
-  os_log("Found password item in keychain with label: [%{public}@], attempting to read password.", log: keychainLog, type: .default, label)
+  cryptLog("Found password item in keychain with label: [%{public}@], attempting to read password.", log: keychainLog, type: .default, label)
   guard let existingItem = item as? [String: Any],
         let passwordData = existingItem[kSecValueData as String] as? Data,
         let password = String(data: passwordData, encoding: String.Encoding.utf8)
   else {
-    os_log("Error: Failed to get password item in keychain with label: [%{public}@].", log: keychainLog, type: .error, label)
+    cryptLog("Error: Failed to get password item in keychain with label: [%{public}@].", log: keychainLog, type: .error, label)
     return nil
   }
-  os_log("Was able to read password for item in keychain with label: [%{public}@].", log: keychainLog, type: .default, label)
+  cryptLog("Was able to read password for item in keychain with label: [%{public}@].", log: keychainLog, type: .default, label)
   return password
 }
 
@@ -359,19 +359,19 @@ func updatePasswordForLabel(label: String, password: String, keychain: SecKeycha
 
   // if acccess instance is passed in then lets use it to update the item.
   if access != nil {
-    os_log("Adding access control to update query.", log: keychainLog, type: .default)
+    cryptLog("Adding access control to update query.", log: keychainLog, type: .default)
     updateQuery[kSecAttrAccessControl] = access
   }
 
-  os_log("Attempting to update password for label %{pubic}@.", log: keychainLog, type: .default, label)
+  cryptLog("Attempting to update password for label %{pubic}@.", log: keychainLog, type: .default, label)
   let updateResult = SecItemUpdate(searchQ as CFDictionary, updateQuery as CFDictionary)
 
   if updateResult != kOSReturnSuccess {
-    os_log("Failed to update item with error: %{pubic}@", log: keychainLog, type: .error, translateErrCode(updateResult))
+    cryptLog("Failed to update item with error: %{pubic}@", log: keychainLog, type: .error, translateErrCode(updateResult))
     return false
   }
 
-  os_log("Updating password for label %{pubic}@ was successful.", log: keychainLog, type: .default, label)
+  cryptLog("Updating password for label %{pubic}@ was successful.", log: keychainLog, type: .default, label)
   return true
 }
 
@@ -398,9 +398,9 @@ func updatePasswordForLabel(label: String, password: String, keychain: SecKeycha
 /// to create or update the `SecAccess` instance with detailed error descriptions.
 func createSecAccessWithAppACLAndOwner(aclOwnerApps: [String], appsWithAccess: [String], aclDescription: String) -> SecAccess? {
   // creates a SecAccess Instance with Owner and App acls and the corresponding description.
-  os_log("Creating SecAccess with description: %{public}@.", log: keychainLog, type: .default, aclDescription)
+  cryptLog("Creating SecAccess with description: %{public}@.", log: keychainLog, type: .default, aclDescription)
   guard let recoveryKeySecAccess = createAccess(withPaths: appsWithAccess, description: aclDescription) else {
-    os_log("Failed to create SecAccess.", log: keychainLog, type: .error)
+    cryptLog("Failed to create SecAccess.", log: keychainLog, type: .error)
     return nil
   }
 
@@ -410,9 +410,9 @@ func createSecAccessWithAppACLAndOwner(aclOwnerApps: [String], appsWithAccess: [
   ]
 
   // update the access with the apps that can change ACLs
-  os_log("Attempting to update ACLs for %{public}@.", log: keychainLog, type: .default, aclDescription)
+  cryptLog("Attempting to update ACLs for %{public}@.", log: keychainLog, type: .default, aclDescription)
   guard let updatedRecoveryKeyAccess = bulkUpdateACLForExistingAccess(access: recoveryKeySecAccess, aclData: aclData, acldescription: aclDescription) else {
-    os_log("Failed to update ACL access for %{public}@.", log: keychainLog, type: .error, aclDescription)
+    cryptLog("Failed to update ACL access for %{public}@.", log: keychainLog, type: .error, aclDescription)
     return nil
   }
   return updatedRecoveryKeyAccess
@@ -439,7 +439,7 @@ func createSecAccessWithAppACLAndOwner(aclOwnerApps: [String], appsWithAccess: [
 /// This function does not throw Swift-level errors, but issues are logged using `os_log`,
 /// including any encountered error codes when the `SecAccess` instance cannot be created.
 func createAccess(withPaths paths: [String], description: String) -> SecAccess? {
-  os_log("Called createAccess.", log: keychainLog, type: .default)
+  cryptLog("Called createAccess.", log: keychainLog, type: .default)
   var access: SecAccess?
 
   var trustedApplications: CFArray?
@@ -450,12 +450,12 @@ func createAccess(withPaths paths: [String], description: String) -> SecAccess? 
     trustedApplications = getTrustedApplicationsFromPaths(appPaths: paths) as CFArray
   }
 
-  os_log("Attempting to create a SecAccess instance with our app array.", log: keychainLog, type: .error)
+  cryptLog("Attempting to create a SecAccess instance with our app array.", log: keychainLog, type: .error)
   // create the access instance with the description and trusted applications
   let createStatus = SecAccessCreate(description as CFString, trustedApplications, &access)
 
   if createStatus != kOSReturnSuccess {
-    os_log("Failed to create SecAccess in createAccess with error: %{public}@", log: keychainLog, type: .error, translateErrCode(createStatus))
+    cryptLog("Failed to create SecAccess in createAccess with error: %{public}@", log: keychainLog, type: .error, translateErrCode(createStatus))
     return nil
   }
 
@@ -488,7 +488,7 @@ func getTrustedApplicationsFromPaths(appPaths: [String]) -> [SecTrustedApplicati
   var trustedAppPaths: [SecTrustedApplication] = []
 
   for app in appPaths {
-    os_log("Creating SecTrustedApplication for [%{public}@]", log: keychainLog, type: .default, app)
+    cryptLog("Creating SecTrustedApplication for [%{public}@]", log: keychainLog, type: .default, app)
 
     var trustedApplication: SecTrustedApplication?
 
@@ -497,16 +497,16 @@ func getTrustedApplicationsFromPaths(appPaths: [String]) -> [SecTrustedApplicati
     let createResult = SecTrustedApplicationCreateFromPath(pathToUse, &trustedApplication)
 
     if createResult != kOSReturnSuccess {
-      os_log("Warning: Failed to create Trusted App for [%{public}@].", log: keychainLog, type: .default, app)
+      cryptLog("Warning: Failed to create Trusted App for [%{public}@].", log: keychainLog, type: .default, app)
       continue
     }
 
     if trustedApplication == nil {
-      os_log("Warning: Failed to create Trusted App for [%{public}@], received a nil value.", log: keychainLog, type: .default, app)
+      cryptLog("Warning: Failed to create Trusted App for [%{public}@], received a nil value.", log: keychainLog, type: .default, app)
       continue
     }
 
-    os_log("Successfully created trusted app for [%{public}@]", log: keychainLog, type: .default, app)
+    cryptLog("Successfully created trusted app for [%{public}@]", log: keychainLog, type: .default, app)
 
     trustedAppPaths.append(trustedApplication!)
 
@@ -543,45 +543,45 @@ func bulkUpdateACLForExistingAccess(access: SecAccess, aclData: [String: [String
 
   for (authorization, apps) in aclData {
     // key is of type CFString and value is of type [String]?
-    os_log("Called updateACLForExistingAccess", log: keychainLog, type: .default)
+    cryptLog("Called updateACLForExistingAccess", log: keychainLog, type: .default)
 
     if let unwrappedApps = apps {
-      os_log("Unwrapped apps and got: %{public}@", log: keychainLog, type: .default, unwrappedApps)
+      cryptLog("Unwrapped apps and got: %{public}@", log: keychainLog, type: .default, unwrappedApps)
     }
 
     guard let authorizationConstant = getACLAuthorizationConstant(from: authorization) else {
-      os_log("Failed to get ACL Constant. Doesn't exist in our list.", log: keychainLog, type: .error)
+      cryptLog("Failed to get ACL Constant. Doesn't exist in our list.", log: keychainLog, type: .error)
       return nil
     }
 
     guard let ACLList = SecAccessCopyMatchingACLList(access, authorizationConstant) else {
-      os_log("Failed to copy Matching ACL List", log: keychainLog, type: .error)
+      cryptLog("Failed to copy Matching ACL List", log: keychainLog, type: .error)
       return nil
     }
 
-    os_log("Getting short auth form for %{public}@", log: keychainLog, type: .default, authorization)
+    cryptLog("Getting short auth form for %{public}@", log: keychainLog, type: .default, authorization)
     let shortAuth = authorization.replacingOccurrences(of: "kSec", with: "")
 
-    os_log("Got short auth form of %{public}@", log: keychainLog, type: .default, shortAuth)
+    cryptLog("Got short auth form of %{public}@", log: keychainLog, type: .default, shortAuth)
     let acls = ACLList as! [SecACL]
 
     var existingApplicationList: CFArray?
     var existingDescription: CFString?
     var promptSelector = SecKeychainPromptSelector()
 
-    os_log("Looping through Existing ACLs", log: keychainLog, type: .default)
+    cryptLog("Looping through Existing ACLs", log: keychainLog, type: .default)
     for acl in acls {
 
       let authArray = SecACLCopyAuthorizations(acl)
 
-      os_log("Checking if: %{public}@ is in %{public}@.", log: keychainLog, type: .default, shortAuth, authArray as! [String])
+      cryptLog("Checking if: %{public}@ is in %{public}@.", log: keychainLog, type: .default, shortAuth, authArray as! [String])
 
       if !(authArray as! [String]).contains(shortAuth) {continue}
 
       let copyContentsResult = SecACLCopyContents(acl, &existingApplicationList, &existingDescription, &promptSelector)
 
       if copyContentsResult != kOSReturnSuccess {
-        os_log("Failed to Copy ACL Contents with error: %{public}@.", log: keychainLog, type: .error, translateErrCode(copyContentsResult))
+        cryptLog("Failed to Copy ACL Contents with error: %{public}@.", log: keychainLog, type: .error, translateErrCode(copyContentsResult))
       }
 
       var description = acldescription as CFString
@@ -591,11 +591,11 @@ func bulkUpdateACLForExistingAccess(access: SecAccess, aclData: [String: [String
       if let appList = apps {
         // to update the ACLAuthorizationPartitionID we need to update the description, we'll handle that differently
         if (authArray as! [String]).contains("ACLAuthorizationPartitionID") {
-          os_log("Need to update ACLAuthorizationPartitionID.", log: keychainLog, type: .default)
+          cryptLog("Need to update ACLAuthorizationPartitionID.", log: keychainLog, type: .default)
           description = updatePartitionIDDescription(existingDescription: existingDescription!, teamIDs: appList)
           appsToUpdate = nil
         } else {
-          os_log("Attempting to get Trusted Applications for: %{public}@", log: keychainLog, type: .default, appList)
+          cryptLog("Attempting to get Trusted Applications for: %{public}@", log: keychainLog, type: .default, appList)
           // convert our app paths to TrustedApplicationPaths to add to the keychain item.
           let trustedApps = getTrustedApplicationsFromPaths(appPaths: appList)
 
@@ -611,7 +611,7 @@ func bulkUpdateACLForExistingAccess(access: SecAccess, aclData: [String: [String
       let setContentsStatus = SecACLSetContents(acl, appsToUpdate, description as CFString, promptSelector)
 
       if setContentsStatus != kOSReturnSuccess {
-        os_log("Failed to set ACL Contents with error: %{public}@", log: keychainLog, type: .error, translateErrCode(setContentsStatus))
+        cryptLog("Failed to set ACL Contents with error: %{public}@", log: keychainLog, type: .error, translateErrCode(setContentsStatus))
         return nil
       }
     }
@@ -639,7 +639,7 @@ func bulkUpdateACLForExistingAccess(access: SecAccess, aclData: [String: [String
 /// This function does not throw errors but returns `nil` if no corresponding constant is found
 /// for the given configuration string.
 func getACLAuthorizationConstant(from configString: String) -> CFString? {
-  os_log("Called getACLAuthorizationConstant for: %{public}@", log: keychainLog, type: .default, configString)
+  cryptLog("Called getACLAuthorizationConstant for: %{public}@", log: keychainLog, type: .default, configString)
   let aclAuthorizationMapping: [String: CFString] = [
     "kSecACLAuthorizationAny": kSecACLAuthorizationAny,
     "kSecACLAuthorizationLogin": kSecACLAuthorizationLogin,
@@ -698,7 +698,7 @@ private func updateApplicationList(existing: CFArray?, applications: [ SecTruste
     let appCopyDataStatus = SecTrustedApplicationCopyData(item, &data)
 
     if appCopyDataStatus != kOSReturnSuccess {
-      os_log("Couldn't get App Data Status.", log: keychainLog, type: .error)
+      cryptLog("Couldn't get App Data Status.", log: keychainLog, type: .error)
       return nil
     }
     return data! as Data
@@ -710,7 +710,7 @@ private func updateApplicationList(existing: CFArray?, applications: [ SecTruste
     let appCopyDataStatus = SecTrustedApplicationCopyData(applicationToAdd, &data)
 
     if appCopyDataStatus != kOSReturnSuccess {
-      os_log("Couldn't get data from SecTrustedApplication.", log: keychainLog, type: .error)
+      cryptLog("Couldn't get data from SecTrustedApplication.", log: keychainLog, type: .error)
       return nil
     }
 
@@ -744,7 +744,7 @@ private func updateApplicationList(existing: CFArray?, applications: [ SecTruste
 /// This function may internally handle errors related to property list serialization and log them, but it does not throw errors at the Swift level.
 func updatePartitionIDDescription(existingDescription: CFString, teamIDs: [String]) -> CFString {
   // generates a plist hexencodedstring for the partionID description.
-  os_log("Called updatePartitionIDDescription.", log: keychainLog, type: .default)
+  cryptLog("Called updatePartitionIDDescription.", log: keychainLog, type: .default)
   let rawData = Data.init(fromHexEncodedString: existingDescription as String)
   var format: PropertyListSerialization.PropertyListFormat = .xml
 
@@ -753,32 +753,32 @@ func updatePartitionIDDescription(existingDescription: CFString, teamIDs: [Strin
   do {
     propertyListObject = try PropertyListSerialization.propertyList(from: rawData!, options: [], format: &format) as! [String: [String]]
   } catch {
-    os_log("No teamid in ACLAuthorizationPartitionID.", log: keychainLog, type: .error)
+    cryptLog("No teamid in ACLAuthorizationPartitionID.", log: keychainLog, type: .error)
   }
 
   var existingParitions = propertyListObject["Partitions"]
 
-  os_log("Existing TeamID Description: [%{public}@]", log: keychainLog, type: .default, existingParitions!)
+  cryptLog("Existing TeamID Description: [%{public}@]", log: keychainLog, type: .default, existingParitions!)
 
   var updatedIDs: Bool = false
 
   for id in teamIDs {
-    os_log("Processing TeamID: [%{public}@].", log: keychainLog, type: .default, id)
+    cryptLog("Processing TeamID: [%{public}@].", log: keychainLog, type: .default, id)
     if existingParitions?.contains(id) == false {
-      os_log("Did not find TeamID [%{public}@] in existing IDs, adding...", log: keychainLog, type: .default, id)
+      cryptLog("Did not find TeamID [%{public}@] in existing IDs, adding...", log: keychainLog, type: .default, id)
       existingParitions?.append(id)
       updatedIDs = true
     }
   }
 
   if updatedIDs == false {
-    os_log("Did not update the TeamIDs returning original description.", log: keychainLog, type: .default)
+    cryptLog("Did not update the TeamIDs returning original description.", log: keychainLog, type: .default)
     return existingDescription
   }
 
   propertyListObject["Partitions"] = existingParitions
 
-  os_log("Need to serialize plist data of %{public}@.", log: keychainLog, type: .default, propertyListObject)
+  cryptLog("Need to serialize plist data of %{public}@.", log: keychainLog, type: .default, propertyListObject)
 
   // now serialize it back into a plist
 
@@ -809,20 +809,20 @@ func updatePartitionIDDescription(existingDescription: CFString, teamIDs: [Strin
 /// This function does not throw Swift-level errors but logs failures via `os_log`,
 /// including the translated error code for debugging purposes.
 func deletePasswordByLabel(inKeychain: SecKeychain, withLabel: String) -> Bool {
-  os_log("Called deletePasswordByLabel with label: %{public}@", log: keychainLog, type: .info, withLabel)
+  cryptLog("Called deletePasswordByLabel with label: %{public}@", log: keychainLog, type: .info, withLabel)
   let searchQ: [CFString: Any] = [
     kSecClass: kSecClassGenericPassword,
     kSecUseKeychain: inKeychain,
     kSecAttrLabel: withLabel
   ]
-  os_log("Attempting to delete password with label: %{public}@", log: keychainLog, type: .info, withLabel)
+  cryptLog("Attempting to delete password with label: %{public}@", log: keychainLog, type: .info, withLabel)
   let status = SecItemDelete(searchQ as CFDictionary)
 
   if status != errSecSuccess {
-    os_log("Failed to delete password with label: [%{public}@] with the Error: %{public}@", log: keychainLog, type: .error, withLabel, translateErrCode(status))
+    cryptLog("Failed to delete password with label: [%{public}@] with the Error: %{public}@", log: keychainLog, type: .error, withLabel, translateErrCode(status))
     return false
   }
 
-  os_log("Successfully deleted password with label: %{public}@", log: keychainLog, type: .info, withLabel)
+  cryptLog("Successfully deleted password with label: %{public}@", log: keychainLog, type: .info, withLabel)
   return true
 }

@@ -3,11 +3,11 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 
 	"github.com/grahamgilbert/crypt/pkg/authmechs"
 	"github.com/grahamgilbert/crypt/pkg/checkin"
+	"github.com/grahamgilbert/crypt/pkg/logging"
 	"github.com/grahamgilbert/crypt/pkg/pref"
 	"github.com/grahamgilbert/crypt/pkg/utils"
 )
@@ -27,34 +27,36 @@ func main() {
 	versionFlag := flag.Bool("version", false, "print the version")
 	flag.Parse()
 
-	p := pref.New()
-	r := utils.NewRunner()
 	if *versionFlag {
 		fmt.Println(version)
 		os.Exit(0)
 	}
+	logging.Setup()
+
+	p := pref.New()
+	r := utils.NewRunner()
 	if *install {
 		err := authmechs.Run(r, true)
 		if err != nil {
-			log.Println(err)
+			logging.Errorf("%v", err)
 			os.Exit(1)
 		}
 	} else if *uninstall {
 		err := authmechs.Run(r, false)
 		if err != nil {
-			log.Println(err)
+			logging.Errorf("%v", err)
 			os.Exit(1)
 		}
 	} else if *checkMechs {
 		err := authmechs.Check(r)
 		if err != nil {
-			log.Println(err)
+			logging.Errorf("%v", err)
 			os.Exit(1)
 		}
 	} else {
 		err := checkin.RunEscrow(r, p)
 		if err != nil {
-			log.Println(err)
+			logging.Errorf("%v", err)
 			os.Exit(1)
 		}
 	}
