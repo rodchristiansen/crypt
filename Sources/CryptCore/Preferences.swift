@@ -92,13 +92,27 @@ func environmentName(for key: Preference) -> String {
   return "CRYPT_" + out.uppercased()
 }
 
-private let configFileValues: [String: Any] = {
-  guard let data = FileManager.default.contents(atPath: cryptConfigPath),
-        let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
-        let dictionary = plist as? [String: Any]
-  else { return [:] }
-  return dictionary
-}()
+/// The configuration file, read once. Property list values are `Any`, which
+/// carries no concurrency guarantee of its own; the dictionary is never
+/// mutated after it is read, which is what makes the unchecked conformance
+/// honest.
+private final class ConfigFile: @unchecked Sendable {
+  static let shared = ConfigFile()
+  let values: [String: Any]
+
+  private init() {
+    guard let data = FileManager.default.contents(atPath: cryptConfigPath),
+          let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
+          let dictionary = plist as? [String: Any]
+    else {
+      values = [:]
+      return
+    }
+    values = dictionary
+  }
+}
+
+private var configFileValues: [String: Any] { ConfigFile.shared.values }
 
 /// Coerces a string drawn from the environment or the configuration file into
 /// the type the default for that key implies, so callers can keep casting the

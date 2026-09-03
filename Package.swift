@@ -15,7 +15,7 @@ let package = Package(
   targets: [
     .target(
       name: "CryptCore",
-      swiftSettings: [.swiftLanguageMode(.v5)]
+      swiftSettings: [.swiftLanguageMode(.v6)]
     ),
     .executableTarget(
       name: "checkin",
@@ -23,12 +23,12 @@ let package = Package(
         "CryptCore",
         .product(name: "ArgumentParser", package: "swift-argument-parser"),
       ],
-      swiftSettings: [.swiftLanguageMode(.v5)]
+      swiftSettings: [.swiftLanguageMode(.v6)]
     ),
     .testTarget(
       name: "CryptCoreTests",
       dependencies: ["CryptCore"],
-      swiftSettings: [.swiftLanguageMode(.v5)]
+      swiftSettings: [.swiftLanguageMode(.v6)]
     ),
   ]
 )
