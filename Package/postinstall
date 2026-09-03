@@ -1,4 +1,4 @@
 #!/bin/zsh --no-rcs
 set -e
 
-/Library/Crypt/checkin -install
+/Library/Crypt/checkin auth-mechs install

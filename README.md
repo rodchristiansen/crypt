@@ -12,10 +12,62 @@ When using Crypt with macOS 10.15 and higher, you will also need to deploy a PPC
 - Escrow is delayed until there is an active user, so FileVault can be enforced when the Mac is offline.
 - Administrators can specify a series of username that should not have to enable FileVault (IT admin, for example).
 - Can securely store the recovery key in the keychain.
+- Escrows over URLSession with configurable timeouts, retries and mutual TLS — no `curl` is invoked and the key never passes through an argument or a temporary file.
+- Configuration resolves from the environment, a configuration profile, a file, then built-in defaults, and `checkin config list` shows which layer won.
+
+## The checkin binary
+
+`/Library/Crypt/checkin` is the client. Run without arguments — as the launch
+daemon does — it escrows the key if one is due:
+
+```
+$ sudo /Library/Crypt/checkin
+```
+
+The other subcommands are for an administrator at the keyboard:
+
+| Command | What it does |
+| --- | --- |
+| `checkin escrow [--force]` | Escrow now. `--force` ignores `KeyEscrowInterval`. |
+| `checkin rotate [--force]` | Discard the held key so a new one is generated at the next login. Without `--force` it stops if the key is still valid. |
+| `checkin verify [--json]` | Report FileVault state, whether a key is held, whether it still unlocks the disk, and when it was last escrowed. |
+| `checkin config list [--json]` | Show every setting, its value, and which layer supplied it. |
+| `checkin config get <key>` / `config set <key> <value>` | Read or write one setting. |
+| `checkin auth-mechs install\|uninstall\|check` | Manage the login window mechanisms. |
+
+Every command takes `--verbose` for debug detail and `--quiet` to write only to
+the log. The single-dash flags of earlier versions (`-install`, `-uninstall`,
+`-check-auth-mechs`, `-version`) still work.
+
+`checkin` exits 0 on success and uses distinct codes otherwise, so a management
+system can tell the cases apart: 2 not root, 3 configuration error, 4 no
+recovery key, 5 escrow failed, 6 the key is invalid, 7 the login mechanisms are
+missing, 8 the server could not be reached.
+
+## Logging
+
+Both the plugin and `checkin` append to `/Library/Managed Encryption/logs/crypt.log`
+as `[yyyy-MM-dd HH:mm:ss] LEVEL  Category: message`, alongside the unified log
+under the `com.grahamgilbert.crypt` subsystem. `checkin` rolls the file daily
+and keeps thirty generations. Set the floor with the `LogLevel` preference
+(`DEBUG`, `INFO`, `WARN`, `ERROR`) or raise it for one run with `--verbose`.
 
 ## Configuration
 
-Preferences can be set either in `/Library/Preferences/com.grahamgilbert.crypt.plist` or via MCX / Profiles. An example profile can be found [here](https://github.com/grahamgilbert/crypt/blob/master/Example%20Crypt%20Profile.mobileconfig).
+Settings are resolved in the order an administrator would expect them to win:
+
+1. The process environment — every preference has a `CRYPT_`-prefixed, upper
+   snake-cased name, so `ServerURL` is `CRYPT_SERVER_URL`.
+2. The `com.grahamgilbert.crypt` preference domain, where a value delivered by a
+   configuration profile beats one written into
+   `/Library/Preferences/com.grahamgilbert.crypt.plist`. An example profile can
+   be found [here](https://github.com/grahamgilbert/crypt/blob/master/Example%20Crypt%20Profile.mobileconfig).
+3. `/Library/Managed Encryption/config.plist`, for a machine that is not managed
+   by a profile.
+4. The built-in default.
+
+`checkin config list` prints what each setting resolved to and which of those
+layers answered.
 
 ### ServerURL
 
@@ -83,12 +135,36 @@ You can define the time interval in Hours for how often Crypt tries to re-escrow
 $ sudo defaults write /Library/Preferences/com.grahamgilbert.crypt KeyEscrowInterval -int 2
 ```
 
-### AdditionalCurlOpts
+### ServerTimeout
 
-The `AdditionalCurlOpts` preference allows you to define an array of additional `curl` options to add to the `curl` command run during checkin to escrow the key to Crypt Server.
+How long, in seconds, to wait for the Crypt server before giving up on one attempt. Defaults to 30.
 
 ```bash
-$ sudo defaults write /Library/Preferences/com.grahamgilbert.crypt AdditionalCurlOpts -array-add "--tlsv1.3"
+$ sudo defaults write /Library/Preferences/com.grahamgilbert.crypt ServerTimeout -int 60
+```
+
+### ServerRetryAttempts
+
+How many times to try the escrow request before reporting a failure. Attempts are spaced a second further apart each time. Defaults to 3.
+
+```bash
+$ sudo defaults write /Library/Preferences/com.grahamgilbert.crypt ServerRetryAttempts -int 5
+```
+
+### APIKey and APIKeyHeader
+
+An optional token sent with the escrow request, for a Crypt server sitting behind a gateway that requires one. `APIKeyHeader` names the header and defaults to `X-API-Key`.
+
+```bash
+$ sudo defaults write /Library/Preferences/com.grahamgilbert.crypt APIKey -string "your-token"
+```
+
+### LogLevel
+
+The lowest level written to the log: `DEBUG`, `INFO` (the default), `WARN` or `ERROR`.
+
+```bash
+$ sudo defaults write /Library/Preferences/com.grahamgilbert.crypt LogLevel -string "DEBUG"
 ```
 
 ### PostRunCommand
@@ -137,7 +213,7 @@ $ sudo defaults write /Library/Preferences/com.grahamgilbert.crypt StoreRecovery
 
 ### CommonNameForEscrow
 
-A string value matching the Issuer Common Name of a certificate in the macOS keychain. Empty/not set by default. Available in Crypt version 6 and later you can use this preference to have crypt use native gocode for the escrow request (not `curl`) and use a certificate in the keychain matching the Issuer Common Name provided for mTLS. The private key associated with the certificate must be accessible and signable by /Library/Crypt/checkin.
+A string value matching the Common Name of a client certificate in the macOS keychain. Empty/not set by default. When it is set, the escrow request presents that certificate for mutual TLS. The private key associated with the certificate must be accessible and signable by /Library/Crypt/checkin.
 
 ```bash
 $ sudo defaults write /Library/Preferences/com.grahamgilbert.crypt CommonNameForEscrow -string "Custom Common Name"
@@ -153,11 +229,28 @@ $ sudo defaults write /Library/Preferences/com.grahamgilbert.crypt GenerateNewKe
 
 ## Uninstalling
 
-The install package will modify the Authorization DB - you need to remove these entries before removing the Crypt Authorization Plugin. To do this, use the `-uninstall` flag in the `checkin` binary (`sudo /Library/Crypt/checkin -uninstall`).
+The install package will modify the Authorization DB - you need to remove these entries before removing the Crypt Authorization Plugin. To do this, run `sudo /Library/Crypt/checkin auth-mechs uninstall`.
 
 ## Building from source
 
-You will need to configure Xcode 9.3 (requires 10.13.2 or later) to sign the bundle before building. Instructions for this are out of the scope of this readme, and [are available on Apple's site](https://developer.apple.com/support/code-signing/).
+Crypt is Swift throughout: the authorization plugin is an Xcode bundle target,
+and `checkin` is a SwiftPM executable. Both share the `CryptCore` sources under
+`Sources/CryptCore`.
+
+Build and test the client on its own:
+
+```
+$ swift build
+$ swift test
+```
+
+Build the universal `checkin` binary the package ships:
+
+```
+$ MACOSX_DEPLOYMENT_TARGET=13.0 swift build -c release --arch arm64 --arch x86_64 --product checkin
+```
+
+For the installer package you will need to configure Xcode to sign the bundle. Instructions for this are out of the scope of this readme, and [are available on Apple's site](https://developer.apple.com/support/code-signing/).
 
 - `make pkg`
 

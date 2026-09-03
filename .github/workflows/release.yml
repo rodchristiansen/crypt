@@ -2,69 +2,57 @@ name: Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to build
+        required: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
 
 jobs:
-  release:
-    runs-on: macos-latest
+  build:
+    name: Build the universal checkin binary
+    runs-on: macos-15
+    timeout-minutes: 30
+
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - name: Version from tag
-        id: ver
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Show toolchain
+        run: swift --version
 
-      - name: Build the authorization plugin (unsigned)
+      - name: Test
+        run: swift test
+
+      - name: Build
+        run: MACOSX_DEPLOYMENT_TARGET=13.0 swift build -c release --arch arm64 --arch x86_64 --product checkin
+
+      - name: Stage the artifact
         run: |
-          xcodebuild -project Crypt.xcodeproj -scheme Crypt -configuration Release \
-            -derivedDataPath ./build \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            build
+          mkdir -p artifacts
+          cp .build/apple/Products/Release/checkin artifacts/checkin
+          lipo -info artifacts/checkin
+          shasum -a 256 artifacts/checkin | tee artifacts/checkin.sha256
 
-      - name: Build the checkin binary (universal)
-        env:
-          VERSION: ${{ steps.ver.outputs.VERSION }}
-        run: |
-          set -euo pipefail
-          export MACOSX_DEPLOYMENT_TARGET=13.0 CGO_ENABLED=1 GOOS=darwin
-          GOARCH=arm64 go build -ldflags "-X main.version=${VERSION}" -o build/checkin.arm64 ./cmd
-          GOARCH=amd64 go build -ldflags "-X main.version=${VERSION}" -o build/checkin.amd64 ./cmd
-          lipo -create -output build/checkin build/checkin.arm64 build/checkin.amd64
-          chmod 755 build/checkin
-
-      - name: Build unsigned package
-        env:
-          VERSION: ${{ steps.ver.outputs.VERSION }}
-        run: |
-          set -euo pipefail
-          root="$PWD/pkg/root"; scripts="$PWD/pkg/scripts"
-          rm -rf "$PWD/pkg" artifacts && mkdir -p "$root/Library/Security/SecurityAgentPlugins" "$root/Library/Crypt" "$root/Library/LaunchDaemons" "$scripts" artifacts
-          cp -R build/Build/Products/Release/Crypt.bundle "$root/Library/Security/SecurityAgentPlugins/Crypt.bundle"
-          cp build/checkin "$root/Library/Crypt/checkin"
-          cp Package/com.grahamgilbert.crypt.plist "$root/Library/LaunchDaemons/com.grahamgilbert.crypt.plist"
-          chmod 644 "$root/Library/LaunchDaemons/com.grahamgilbert.crypt.plist"
-          install -m 755 Package/preinstall Package/postinstall "$scripts/"
-          pkgbuild --root "$root" --scripts "$scripts" --identifier com.grahamgilbert.Crypt --version "$VERSION" \
-            --install-location / "artifacts/Crypt.pkg"
-          sed "s/replace_version/${VERSION}/g" Package/Distribution-Template > artifacts/Distribution
-          productbuild --distribution artifacts/Distribution --package-path artifacts "artifacts/Crypt-${VERSION}.pkg"
-          rm -f artifacts/Crypt.pkg artifacts/Distribution
-          shasum -a 256 "artifacts/Crypt-${VERSION}.pkg" > "artifacts/Crypt-${VERSION}.pkg.sha256"
-
-      - name: Publish release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v4
         with:
-          name: Crypt ${{ steps.ver.outputs.VERSION }}
-          body: Unsigned package built from this tag. Sign and notarize it with your own Developer ID before deployment.
-          files: |
-            artifacts/Crypt-${{ steps.ver.outputs.VERSION }}.pkg
-            artifacts/Crypt-${{ steps.ver.outputs.VERSION }}.pkg.sha256
+          name: checkin-universal
+          path: artifacts/
+
+      # The binary published here is unsigned and unnotarised. The installer
+      # package is built and signed separately, by an operator holding the
+      # Developer ID certificates, with `make dist && make notarize`.
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" artifacts/checkin artifacts/checkin.sha256 --clobber
