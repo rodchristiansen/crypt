@@ -19,6 +19,18 @@ import Foundation
 import Security
 import os.log
 
+// This file uses the SecKeychain, SecAccess and SecACL API that Apple
+// deprecated in macOS 10.10, and does so deliberately. Crypt stores the
+// recovery key in /Library/Keychains/System.keychain with an access control
+// list naming the individual executables allowed to read and to change it -
+// the AppsAllowedToReadKey, AppsAllowedToChangeKey and InvisibleInKeychain
+// preferences. The replacement, SecItem with kSecAccessControl, governs the
+// data protection keychain, which is per-user and unreachable from a process
+// running as root at the login window, and it has no per-application ACL.
+// Moving to it would mean dropping those three preferences and storing the key
+// with no access control at all, so the deprecated calls stay until Apple
+// offers an equivalent.
+
 extension Data {
 
   init?(fromHexEncodedString string: String) {
