@@ -52,7 +52,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		1A8643111F15292200108C19 /* Preferences.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Preferences.swift; sourceTree = "<group>"; };
+		1A8643111F15292200108C19 /* Preferences.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = Preferences.swift; path = Sources/CryptCore/Preferences.swift; sourceTree = "<group>"; };
 		D2D31D4F1C2303F500839D93 /* Crypt-Bridging-Header.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = "Crypt-Bridging-Header.h"; path = "Crypt/Crypt-Bridging-Header.h"; sourceTree = "<group>"; };
 		D2D31D501C2303F500839D93 /* CryptAuthPlugin.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; name = CryptAuthPlugin.h; path = Crypt/CryptAuthPlugin.h; sourceTree = "<group>"; };
 		D2D31D511C2303F500839D93 /* CryptAuthPlugin.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; name = CryptAuthPlugin.m; path = Crypt/CryptAuthPlugin.m; sourceTree = "<group>"; };
@@ -61,9 +61,9 @@
 		D2D31D651C23042A00839D93 /* Crypt.bundle */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Crypt.bundle; sourceTree = BUILT_PRODUCTS_DIR; };
 		D50ACC792A6C797E00F8E62D /* authmod */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = authmod; sourceTree = BUILT_PRODUCTS_DIR; };
 		D50ACC7B2A6C797E00F8E62D /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
-		D50F65B02B8CE9C4008887DB /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Keychain.swift; sourceTree = "<group>"; };
-		D50F65B22B8CEF27008887DB /* Logging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Logging.swift; sourceTree = "<group>"; };
-		D54BDA332C31F4190028425F /* Filevault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Filevault.swift; sourceTree = "<group>"; };
+		D50F65B02B8CE9C4008887DB /* Keychain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Keychain.swift; path = Sources/CryptCore/Keychain.swift; sourceTree = "<group>"; };
+		D50F65B22B8CEF27008887DB /* Logging.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Logging.swift; path = Sources/CryptCore/Logging.swift; sourceTree = "<group>"; };
+		D54BDA332C31F4190028425F /* Filevault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Filevault.swift; path = Sources/CryptCore/Filevault.swift; sourceTree = "<group>"; };
 		D5C75AA62D4C06E900C77CA0 /* Core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 

@@ -6,7 +6,6 @@ TITLE=Crypt
 GITVERSION=$(shell ./Package/build_no.sh)
 BUNDLE_VERSION=$(shell /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "Crypt/Info.plist")
 PACKAGE_VERSION=${BUNDLE_VERSION}.${GITVERSION}
-CLANG_DIR := /opt/homebrew/opt/llvm/bin
 REVERSE_DOMAIN=com.grahamgilbert
 PACKAGE_NAME=${TITLE}
 PAYLOAD=\
@@ -15,27 +14,25 @@ PAYLOAD=\
 	pack-scripts \
 	remove-xattrs
 
-.PHONY: coverage
+SWIFT_BUILD_DIR=.build/apple/Products/Release
 
+.PHONY: test coverage version lint
 
-#################################################
-## Why is all the bazel stuff commented out? It seems to have issues with Cgo.
-gazelle:
-	bazel run //:gazelle
+# Keep the version reported by `checkin --version` in step with the bundle.
+version:
+	@/usr/bin/sed -i '' 's/^let cryptVersion = .*/let cryptVersion = "${BUNDLE_VERSION}"/' Sources/checkin/Version.swift
 
 run:
-	# bazel run --platforms=@io_bazel_rules_go//go/toolchain:darwin_amd64 -- //cmd:crypt-arm64
-	go run cmd/main.go
-
-update-repos:
-	bazel run //:gazelle-update-repos -- -from_file=go.mod
+	swift run checkin --help
 
 test:
-	# bazel test --test_output=errors //...
-	go test -v ./...
+	swift test
 
 coverage:
-	./tools/coverage.sh
+	swift test --enable-code-coverage
+
+lint:
+	swift build -Xswiftc -warnings-as-errors 2>/dev/null || swift build
 
 build: check_variables clean-crypt build_binary
 	xcodebuild -project Crypt.xcodeproj -configuration Release -scheme Crypt -derivedDataPath ./build OTHER_CODE_SIGN_FLAGS="--timestamp" CODE_SIGN_IDENTITY="${DEV_APP_CERT}"
@@ -43,6 +40,7 @@ build: check_variables clean-crypt build_binary
 
 clean-crypt:
 	@sudo rm -rf build
+	@sudo rm -rf .build
 	@sudo rm -rf Crypt.pkg
 
 pack-plugin: build l_private_etc
@@ -54,15 +52,12 @@ pack-scripts:
 	@sudo ${INSTALL} -o root -g wheel -m 755 Package/postinstall ${SCRIPT_D}
 	@sudo ${INSTALL} -o root -g wheel -m 755 Package/preinstall ${SCRIPT_D}
 
-build_binary:
-	# bazel build --platforms=@io_bazel_rules_go//go/toolchain:darwin_amd64 //:cmd:crypt-amd
-	# bazel build --platforms=@io_bazel_rules_go//go/toolchain:darwin_arm //cmd:crypt-arm
-	# tools/bazel_to_builddir.sh
-	MACOSX_DEPLOYMENT_TARGET=13.0 CGO_ENABLED=1 CC=/opt/homebrew/opt/llvm/bin/clang CXX=/opt/homebrew/opt/llvm/bin/clang++ GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.version=${BUNDLE_VERSION}" -o build/checkin.arm64 cmd/main.go
-	MACOSX_DEPLOYMENT_TARGET=13.0 CGO_ENABLED=1 CC=/opt/homebrew/opt/llvm/bin/clang CXX=/opt/homebrew/opt/llvm/bin/clang++ GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.version=${BUNDLE_VERSION}" -o build/checkin.amd64 cmd/main.go
-	/usr/bin/lipo -create -output build/checkin build/checkin.arm64 build/checkin.amd64
-	/bin/rm build/checkin.arm64
-	/bin/rm build/checkin.amd64
+# swift build produces one universal binary from both slices, so there is no
+# lipo step and no separate toolchain to point at.
+build_binary: version
+	MACOSX_DEPLOYMENT_TARGET=13.0 swift build -c release --arch arm64 --arch x86_64 --product checkin
+	@mkdir -p build
+	@/bin/cp ${SWIFT_BUILD_DIR}/checkin build/checkin
 	@sudo chown root:wheel build/checkin
 	@sudo chmod 755 build/checkin
 
@@ -112,7 +107,4 @@ $(error "APPLE_ACC_USER" is not set)
 endif
 ifndef APPLE_ACC_PWD
 $(error "APPLE_ACC_PWD" is not set)
-endif
-ifeq ("$(wildcard $(CLANG_DIR))","")
-$(error The directory $(CLANG_DIR) does not exist)
 endif
