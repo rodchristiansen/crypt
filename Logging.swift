@@ -70,14 +70,49 @@ func cryptLog(_ message: StaticString, log: OSLog = .default, type: OSLogType = 
   case 3: os_log(message, log: log, type: type, args[0], args[1], args[2])
   default: os_log(message, log: log, type: type, args[0], args[1], args[2], args[3])
   }
-  let template = "\(message)"
-    .replacingOccurrences(of: "%{public}", with: "%")
-    .replacingOccurrences(of: "%{private}", with: "%")
-  let text = args.isEmpty ? template : String(format: template, arguments: args)
+  let text = renderManagedLog("\(message)", args)
   let category = cryptLogCategories[ObjectIdentifier(log)] ?? "Crypt"
   let level = managedLogLevel(type).padding(toLength: 5, withPad: " ", startingAt: 0)
   let record = "[\(managedLogStamp.string(from: Date()))] \(level) \(category): \(text)\n"
   managedLogQueue.async { appendManagedLog(record) }
+}
+
+/// Fills an os_log format string for the managed log file without
+/// String(format:). The os_log specifiers here do not match what
+/// String(format:) expects: `%{public}s` is given Swift Strings, and
+/// String(format:) reads `%s` as a C pointer. At login that crashed the
+/// authorization plugin in strlen and locked the user out (2026-09-30). Each
+/// specifier is replaced by its argument's description instead, which cannot
+/// misread memory whatever the specifier says.
+func renderManagedLog(_ template: String, _ args: [CVarArg]) -> String {
+  var out = ""
+  var next = args.makeIterator()
+  var chars = template[...]
+  while let i = chars.firstIndex(of: "%") {
+    out += chars[..<i]
+    var j = chars.index(after: i)
+    if j < chars.endIndex, chars[j] == "%" {
+      out += "%"
+      chars = chars[chars.index(after: j)...]
+      continue
+    }
+    if j < chars.endIndex, chars[j] == "{", let close = chars[j...].firstIndex(of: "}") {
+      j = chars.index(after: close)
+    }
+    // Flags, width, precision and length modifiers, then the conversion.
+    while j < chars.endIndex, "-+ #0123456789.hlqLzjt".contains(chars[j]) {
+      j = chars.index(after: j)
+    }
+    guard j < chars.endIndex else {
+      out += chars[i...]
+      chars = chars[chars.endIndex...]
+      break
+    }
+    out += next.next().map { String(describing: $0) } ?? "<missing>"
+    chars = chars[chars.index(after: j)...]
+  }
+  out += chars
+  return out
 }
 
 private func appendManagedLog(_ record: String) {
