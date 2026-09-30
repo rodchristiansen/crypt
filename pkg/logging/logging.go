@@ -321,13 +321,18 @@ func (w *Writer) Close() error {
 	return nil
 }
 
-// Errorf records an ERROR line through the shared writer, or stderr before Setup.
+// Errorf records an ERROR line through the shared writer and also writes it to
+// stderr, so a failing --install run shows in the installer's log. Before
+// Setup it goes to stderr only.
 func Errorf(format string, args ...interface{}) {
 	if std == nil {
 		fmt.Fprintf(os.Stderr, format+"\n", args...)
 		return
 	}
 	std.Log("ERROR", format, args...)
+	if !std.echo { // an echoing writer has already shown it on the terminal
+		fmt.Fprintf(os.Stderr, "crypt: "+format+"\n", args...)
+	}
 }
 
 // Warnf records a WARN line through the shared writer, or stderr before Setup.
