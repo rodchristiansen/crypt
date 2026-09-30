@@ -1,4 +1,8 @@
 #!/bin/zsh --no-rcs
 set -e
 
+# launchd opens the daemon's StandardOutPath before checkin runs, so the
+# directory must exist before the daemon's first launch.
+/bin/mkdir -p "/Library/Managed Encryption/logs"
+
 /Library/Crypt/checkin -install
