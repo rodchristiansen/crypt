@@ -14,6 +14,7 @@ import (
 
 	"github.com/googleapis/enterprise-certificate-proxy/darwin"
 	"github.com/grahamgilbert/crypt/pkg/authmechs"
+	"github.com/grahamgilbert/crypt/pkg/logging"
 	"github.com/grahamgilbert/crypt/pkg/pref"
 	"github.com/grahamgilbert/crypt/pkg/utils"
 	"github.com/groob/plist"
@@ -371,7 +372,7 @@ func rotateInvalidKey(plistPath string, r utils.Runner, p pref.PrefInterface) er
 func removeInvalidKey(plistPath string, usingKeychain bool) error {
 	var err error
 	if usingKeychain {
-		log.Println("Removing invalid recovery key from keychain.")
+		logging.Warnf("Removing invalid recovery key from keychain.")
 		err = utils.DeleteSecret()
 		if err != nil {
 			return errors.Wrap(err, "failed to delete recovery key from keychain")
@@ -379,7 +380,7 @@ func removeInvalidKey(plistPath string, usingKeychain bool) error {
 		return nil
 	}
 
-	log.Printf("Removing invalid key at path: %s\n", plistPath)
+	logging.Warnf("Removing invalid key at path: %s", plistPath)
 	err = os.Remove(plistPath)
 	if err != nil {
 		return errors.Wrap(err, "os.remove plistPath")
@@ -423,8 +424,8 @@ func validateRecoveryKey(recoveryKey string, r utils.Runner) (bool, error) {
 	if strings.TrimSpace(string(stdoutData)) == "true" {
 		return true, nil
 	} else {
-		log.Println("Recovery Key could not be validated.")
-		log.Printf("Failed with Error: %s", stdoutData)
+		logging.Errorf("Recovery Key could not be validated.")
+		logging.Errorf("Failed with Error: %s", stdoutData)
 		return false, errors.New("Recovery Key validation failed")
 	}
 }
