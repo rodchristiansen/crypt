@@ -43,7 +43,9 @@ private let cryptLogCategories: [ObjectIdentifier: String] = [
   ObjectIdentifier(checkLog): "Check",
 ]
 
-private let managedLogQueue = DispatchQueue(label: cryptBundleID + ".managedlog")
+// Serializes records within this process so a multi-line record reaches the
+// file in one write(2); O_APPEND keeps records from other processes whole.
+private let managedLogLock = NSLock()
 
 private let managedLogStamp: DateFormatter = {
   let f = DateFormatter()
@@ -70,11 +72,31 @@ func cryptLog(_ message: StaticString, log: OSLog = .default, type: OSLogType = 
   case 3: os_log(message, log: log, type: type, args[0], args[1], args[2])
   default: os_log(message, log: log, type: type, args[0], args[1], args[2], args[3])
   }
+  // Debug records stay in the unified log only, as in the checkin's file.
+  if type == .debug { return }
   let text = renderManagedLog("\(message)", args)
   let category = cryptLogCategories[ObjectIdentifier(log)] ?? "Crypt"
-  let level = managedLogLevel(type).padding(toLength: 5, withPad: " ", startingAt: 0)
-  let record = "[\(managedLogStamp.string(from: Date()))] \(level) \(category): \(text)\n"
-  managedLogQueue.async { appendManagedLog(record) }
+  let level = managedLogLevel(type)
+  // Written synchronously: authorizationhost can exit or crash straight after
+  // a record is logged, and a queued write would be lost with it.
+  managedLogLock.lock()
+  defer { managedLogLock.unlock() }
+  let block = managedLogRecords(text, level: level, category: category,
+                                stamp: managedLogStamp.string(from: Date()))
+  appendManagedLog(block)
+}
+
+/// Formats one message as managed-log records, one per non-empty line, each
+/// with the "[timestamp] LEVEL Category:" prefix, as the checkin's writer does.
+func managedLogRecords(_ text: String, level: String, category: String, stamp: String) -> String {
+  let padded = level.padding(toLength: 5, withPad: " ", startingAt: 0)
+  var out = ""
+  // "\r\n" is one Character in Swift, so it is matched as a separator itself.
+  let lines = text.split(omittingEmptySubsequences: true) { $0 == "\n" || $0 == "\r\n" || $0 == "\r" }
+  for line in lines {
+    out += "[\(stamp)] \(padded) \(category): \(line)\n"
+  }
+  return out
 }
 
 /// Fills an os_log format string for the managed log file without
@@ -115,18 +137,46 @@ func renderManagedLog(_ template: String, _ args: [CVarArg]) -> String {
   return out
 }
 
-private func appendManagedLog(_ record: String) {
-  let fm = FileManager.default
-  if !fm.fileExists(atPath: managedLogDirectory) {
-    try? fm.createDirectory(atPath: managedLogDirectory, withIntermediateDirectories: true,
-                            attributes: [.posixPermissions: 0o755])
+/// Appends text to the managed log with POSIX calls only. Every failure (no
+/// directory, read-only volume, disk full) is ignored: this runs inside
+/// authorizationhost, where a trap or an Objective-C exception from
+/// FileHandle would lock the user out of the Mac. The file is opened with
+/// O_APPEND for each record, so writes from the plugin and the checkin never
+/// overwrite each other, and a file the checkin rolled away is recreated.
+func appendManagedLog(_ text: String, path: String = managedLogPath,
+                      directory: String = managedLogDirectory) {
+  let bytes = Array(text.utf8)
+  if bytes.isEmpty { return }
+  let flags = O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW
+  var fd = open(path, flags, mode_t(0o644))
+  if fd < 0 && errno == ENOENT {
+    makeManagedLogDirectory(directory)
+    fd = open(path, flags, mode_t(0o644))
   }
-  if !fm.fileExists(atPath: managedLogPath) {
-    fm.createFile(atPath: managedLogPath, contents: nil, attributes: [.posixPermissions: 0o644])
+  if fd < 0 { return }
+  defer { _ = close(fd) }
+  bytes.withUnsafeBytes { buf in
+    guard let base = buf.baseAddress else { return }
+    var offset = 0
+    while offset < buf.count {
+      let n = write(fd, base + offset, buf.count - offset)
+      if n > 0 {
+        offset += n
+      } else if n < 0 && errno == EINTR {
+        continue
+      } else {
+        return
+      }
+    }
   }
-  guard let handle = FileHandle(forWritingAtPath: managedLogPath),
-        let data = record.data(using: .utf8) else { return }
-  defer { handle.closeFile() }
-  handle.seekToEndOfFile()
-  handle.write(data)
+}
+
+/// mkdir -p with mkdir(2), ignoring every error; the open that follows is
+/// what decides whether the record can be written.
+private func makeManagedLogDirectory(_ directory: String) {
+  var partial = ""
+  for component in directory.split(separator: "/", omittingEmptySubsequences: true) {
+    partial += "/" + component
+    _ = mkdir(partial, mode_t(0o755))
+  }
 }
