@@ -153,7 +153,7 @@ func firstRecordDay(path string) (time.Time, bool) {
 	if err != nil {
 		return time.Time{}, false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	head := make([]byte, len(stampLayout)+2)
 	n, _ := io.ReadFull(f, head)
 	return parseStamp(head[:n])
