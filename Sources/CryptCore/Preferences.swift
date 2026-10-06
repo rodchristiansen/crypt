@@ -101,7 +101,8 @@ private final class ConfigFile: @unchecked Sendable {
   let values: [String: Any]
 
   private init() {
-    guard let data = FileManager.default.contents(atPath: cryptConfigPath),
+    guard isTrustedConfigFile(atPath: cryptConfigPath),
+          let data = FileManager.default.contents(atPath: cryptConfigPath),
           let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil),
           let dictionary = plist as? [String: Any]
     else {
@@ -113,6 +114,24 @@ private final class ConfigFile: @unchecked Sendable {
 }
 
 private var configFileValues: [String: Any] { ConfigFile.shared.values }
+
+/// A configuration file is only worth reading when nobody but root could have
+/// written it: a regular file, not a link, owned by root and not writable by
+/// group or others. checkin runs as root and sends the recovery key wherever
+/// `ServerURL` points, so a file a standard user could plant must be ignored.
+func isTrustedConfigFile(atPath path: String) -> Bool {
+  var info = stat()
+  guard lstat(path, &info) == 0 else { return false }
+  guard (info.st_mode & S_IFMT) == S_IFREG else {
+    cryptLog("Ignoring %{public}@: not a regular file.", log: prefLog, type: .error, path)
+    return false
+  }
+  guard info.st_uid == 0, info.st_mode & (S_IWGRP | S_IWOTH) == 0 else {
+    cryptLog("Ignoring %{public}@: it must be owned by root and writable only by root.", log: prefLog, type: .error, path)
+    return false
+  }
+  return true
+}
 
 /// Coerces a string drawn from the environment or the configuration file into
 /// the type the default for that key implies, so callers can keep casting the
@@ -133,72 +152,91 @@ public func coerce(_ value: Any, like template: Any?) -> Any {
   }
 }
 
-/**
- Retrieves a preference value.
-
- Values are resolved in the order an administrator would expect them to win:
- the process environment, then the preference domain (where a configuration
- profile takes precedence over a locally written value), then the
- configuration file at `/Library/Managed Encryption/config.plist`, and finally
- the built-in default.
-
- - Parameter key: The preference key to retrieve the value for.
- - Returns: The preference value, or nil if the key has no value at any layer.
- */
-public func getPref(key: Preference) -> Any? {
-  let fallback = Preference.defaultPreferences[key]
-
-  if let fromEnvironment = ProcessInfo.processInfo.environment[environmentName(for: key)],
-     !fromEnvironment.isEmpty {
-    return coerce(fromEnvironment, like: fallback)
-  }
-
-  if let value = CFPreferencesCopyAppValue(key.rawValue as CFString, cryptBundleID as CFString) {
-    return value
-  }
-
-  if let fromFile = configFileValues[key.rawValue] {
-    return coerce(fromFile, like: fallback)
-  }
-
-  if let fallback {
-    return fallback
-  }
-
-  cryptLog("Did not find a default for key: %{public}@, returning nil", log: prefLog, type: .debug, key.rawValue)
-  return nil
-}
-
 /// Where the value for a key came from. Used by `checkin config` to explain a
 /// resolved configuration rather than only printing it.
 public enum PreferenceSource: String, Sendable {
-  case environment = "environment"
   case profile = "configuration profile"
   case domain = "preference domain"
+  case environment = "environment"
   case file = "configuration file"
   case builtIn = "built-in default"
   case unset = "unset"
 }
 
-/// Resolves a key the same way `getPref` does, reporting which layer answered.
-public func getPrefWithSource(key: Preference) -> (value: Any?, source: PreferenceSource) {
+/// The places a setting can come from, separated so the order they are
+/// consulted in can be tested without a real profile or preference file.
+struct PreferenceLayers {
+  /// A value a configuration profile forces, or nil when the key is not managed.
+  var profile: (String) -> Any?
+  /// A value written locally, in `/Library/Preferences` or root's own domain.
+  var domain: (String) -> Any?
+  var environment: [String: String]
+  var file: [String: Any]
+
+  static var live: PreferenceLayers {
+    PreferenceLayers(
+      profile: { key in
+        guard CFPreferencesAppValueIsForced(key as CFString, cryptBundleID as CFString) else { return nil }
+        return CFPreferencesCopyAppValue(key as CFString, cryptBundleID as CFString)
+      },
+      domain: { key in
+        guard !CFPreferencesAppValueIsForced(key as CFString, cryptBundleID as CFString) else { return nil }
+        return CFPreferencesCopyAppValue(key as CFString, cryptBundleID as CFString)
+      },
+      environment: ProcessInfo.processInfo.environment,
+      file: configFileValues
+    )
+  }
+}
+
+/**
+ Resolves a key, reporting which layer answered.
+
+ A value forced by a configuration profile always wins, then a value written
+ into the preference domain (`/Library/Preferences`), then the process
+ environment, then the configuration file at
+ `/Library/Managed Encryption/config.plist`, and finally the built-in default.
+ The environment never overrides what a profile or an administrator set; a
+ one-off override for a single run belongs on the command line.
+ */
+func resolvePref(key: Preference, layers: PreferenceLayers) -> (value: Any?, source: PreferenceSource) {
   let fallback = Preference.defaultPreferences[key]
 
-  if let fromEnvironment = ProcessInfo.processInfo.environment[environmentName(for: key)],
-     !fromEnvironment.isEmpty {
+  if let value = layers.profile(key.rawValue) {
+    return (value, .profile)
+  }
+  if let value = layers.domain(key.rawValue) {
+    return (value, .domain)
+  }
+  if let fromEnvironment = layers.environment[environmentName(for: key)], !fromEnvironment.isEmpty {
     return (coerce(fromEnvironment, like: fallback), .environment)
   }
-  if let value = CFPreferencesCopyAppValue(key.rawValue as CFString, cryptBundleID as CFString) {
-    let forced = CFPreferencesAppValueIsForced(key.rawValue as CFString, cryptBundleID as CFString)
-    return (value, forced ? .profile : .domain)
-  }
-  if let fromFile = configFileValues[key.rawValue] {
+  if let fromFile = layers.file[key.rawValue] {
     return (coerce(fromFile, like: fallback), .file)
   }
   if let fallback {
     return (fallback, .builtIn)
   }
   return (nil, .unset)
+}
+
+/**
+ Retrieves a preference value, in the order described on `resolvePref`.
+
+ - Parameter key: The preference key to retrieve the value for.
+ - Returns: The preference value, or nil if the key has no value at any layer.
+ */
+public func getPref(key: Preference) -> Any? {
+  let (value, source) = resolvePref(key: key, layers: .live)
+  if source == .unset {
+    cryptLog("Did not find a default for key: %{public}@, returning nil", log: prefLog, type: .debug, key.rawValue)
+  }
+  return value
+}
+
+/// Resolves a key the same way `getPref` does, reporting which layer answered.
+public func getPrefWithSource(key: Preference) -> (value: Any?, source: PreferenceSource) {
+  resolvePref(key: key, layers: .live)
 }
 
 // MARK: - Typed accessors

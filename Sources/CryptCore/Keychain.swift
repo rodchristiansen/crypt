@@ -276,6 +276,23 @@ func syncRecoveryKeyToKeychain(label: String, recoveryKey: String, keychain: Str
 
 }
 
+/// What a keychain search's status means for the caller. A missing item is an
+/// ordinary answer, not an error, and neither it nor a failed search may fall
+/// through to reading an item that was never returned.
+enum KeychainLookup: Equatable {
+  case found
+  case notFound
+  case failed
+
+  init(status: OSStatus) {
+    switch status {
+    case errSecSuccess: self = .found
+    case errSecItemNotFound: self = .notFound
+    default: self = .failed
+    }
+  }
+}
+
 /// Retrieves a password from the keychain using a specified label.
 ///
 /// This function searches for a password item in the provided keychain using the given label.
@@ -314,9 +331,15 @@ func getPasswordFromKeychain(label: String, keyChain: SecKeychain? = nil) -> Str
   cryptLog("Looking for password in keychain for label: [%{public}@].", log: keychainLog, type: .default, label)
   let queryStatus = SecItemCopyMatching(query as CFDictionary, &item)
 
-  if queryStatus != errSecSuccess {
-    let translatedCode = translateErrCode(queryStatus)
-    cryptLog("Could not find password in keycahin for label: [%{public}@] with message: [%{public}@]", log: keychainLog, type: .default, label, translatedCode)
+  switch KeychainLookup(status: queryStatus) {
+  case .found:
+    break
+  case .notFound:
+    cryptLog("No password item in keychain with label: [%{public}@].", log: keychainLog, type: .default, label)
+    return nil
+  case .failed:
+    cryptLog("Could not search the keychain for label: [%{public}@]: %{public}@", log: keychainLog, type: .error, label, translateErrCode(queryStatus))
+    return nil
   }
 
   cryptLog("Found password item in keychain with label: [%{public}@], attempting to read password.", log: keychainLog, type: .default, label)

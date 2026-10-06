@@ -54,17 +54,19 @@ and keeps thirty generations. Set the floor with the `LogLevel` preference
 
 ## Configuration
 
-Settings are resolved in the order an administrator would expect them to win:
+Settings are resolved in this order, first match wins:
 
-1. The process environment — every preference has a `CRYPT_`-prefixed, upper
-   snake-cased name, so `ServerURL` is `CRYPT_SERVER_URL`.
-2. The `com.grahamgilbert.crypt` preference domain, where a value delivered by a
-   configuration profile beats one written into
-   `/Library/Preferences/com.grahamgilbert.crypt.plist`. An example profile can
-   be found [here](https://github.com/grahamgilbert/crypt/blob/master/Example%20Crypt%20Profile.mobileconfig).
-3. `/Library/Managed Encryption/config.plist`, for a machine that is not managed
-   by a profile.
-4. The built-in default.
+1. A value forced by a configuration profile in the `com.grahamgilbert.crypt`
+   domain. Nothing below it can override it, so a profile is the way to pin the
+   escrow server. An example profile can be found [here](https://github.com/grahamgilbert/crypt/blob/master/Example%20Crypt%20Profile.mobileconfig).
+2. A value written into `/Library/Preferences/com.grahamgilbert.crypt.plist`.
+3. The process environment. Every preference has a `CRYPT_`-prefixed, upper
+   snake-cased name, so `ServerURL` is `CRYPT_SERVER_URL`. The environment never
+   overrides a profile or a value an administrator wrote.
+4. `/Library/Managed Encryption/config.plist`, for a machine that is not managed
+   by a profile. It is read only when it is a regular file owned by root and
+   writable by nobody else.
+5. The built-in default.
 
 `checkin config list` prints what each setting resolved to and which of those
 layers answered.
