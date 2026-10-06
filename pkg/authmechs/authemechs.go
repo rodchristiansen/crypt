@@ -3,10 +3,10 @@ package authmechs
 import (
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"reflect"
 
+	"github.com/grahamgilbert/crypt/pkg/logging"
 	"github.com/grahamgilbert/crypt/pkg/utils"
 	"github.com/groob/plist"
 )
@@ -172,7 +172,7 @@ func Ensure(r utils.Runner) error {
 		return nil
 	}
 
-	log.Println("Mechanisms are not set correctly, adding to AuthDB")
+	logging.Warnf("Mechanisms are not set correctly, adding to AuthDB")
 
 	return editAuthDB(r, true)
 }
