@@ -172,7 +172,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# based on http://tgoode.com/2014/06/05/sensible-way-increment-bundle-version-cfbundleversion-xcode\nif git rev-parse --is-inside-work-tree 2> /dev/null > /dev/null; then\necho \"Setting CFBundleVersion to Git rev-list --count\"\nbuild_number=$(git rev-list HEAD --count)\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $build_number\" \"${PROJECT_DIR}/${INFOPLIST_FILE}\"\nelse\necho \"Not in a Git repo, not setting CFBundleVersion\"\nfi\n";
+			shellScript = "# A release passes CRYPT_BUILD_NUMBER, derived from its tag, so the build\n# number never depends on how much history the checkout fetched. Local builds\n# fall back to the commit count.\nif [ -n \"${CRYPT_BUILD_NUMBER}\" ]; then\nbuild_number=\"${CRYPT_BUILD_NUMBER}\"\nelif git rev-parse --is-inside-work-tree 2> /dev/null > /dev/null; then\nbuild_number=$(git rev-list HEAD --count)\nfi\nif [ -n \"${build_number}\" ]; then\necho \"Setting CFBundleVersion to ${build_number}\"\n/usr/libexec/PlistBuddy -c \"Set :CFBundleVersion $build_number\" \"${PROJECT_DIR}/${INFOPLIST_FILE}\"\nelse\necho \"No build number available, not setting CFBundleVersion\"\nfi\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
