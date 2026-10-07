@@ -9,6 +9,10 @@ once rather than twice in two languages. The Go and Bazel trees are gone.
 
 ### Enhancements
 
+- The package no longer asks for a restart, so a software manager can install
+  it unattended. The postinstall reloads the checkin LaunchDaemon so the new
+  binary runs at once, and SecurityAgent picks up the new login plugin at the
+  next login.
 - Escrow goes over URLSession rather than shelling out to `/usr/bin/curl`, with
   configurable timeouts (`ServerTimeout`), retries (`ServerRetryAttempts`) and
   an optional API key (`APIKey`, `APIKeyHeader`). Mutual TLS via
