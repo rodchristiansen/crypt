@@ -16,6 +16,12 @@ PAYLOAD=\
 
 SWIFT_BUILD_DIR=.build/apple/Products/Release
 
+# Crypt.bundle's CFBundleVersion. A timestamp always increases and sits above
+# upstream's commit-count build numbers, so the installer never treats this
+# bundle as older than one already on the Mac. Override it to build a tag:
+# make dist CRYPT_BUILD_NUMBER=202610061522
+CRYPT_BUILD_NUMBER ?= $(shell date -u +%Y%m%d%H%M)
+
 .PHONY: test coverage version lint
 
 # Keep the version reported by `checkin --version` in step with the bundle.
@@ -35,7 +41,7 @@ lint:
 	swift build -Xswiftc -warnings-as-errors 2>/dev/null || swift build
 
 build: check_variables clean-crypt build_binary
-	xcodebuild -project Crypt.xcodeproj -configuration Release -scheme Crypt -derivedDataPath ./build OTHER_CODE_SIGN_FLAGS="--timestamp" CODE_SIGN_IDENTITY="${DEV_APP_CERT}"
+	xcodebuild -project Crypt.xcodeproj -configuration Release -scheme Crypt -derivedDataPath ./build OTHER_CODE_SIGN_FLAGS="--timestamp" CODE_SIGN_IDENTITY="${DEV_APP_CERT}" CRYPT_BUILD_NUMBER="${CRYPT_BUILD_NUMBER}"
 
 
 clean-crypt:
@@ -74,6 +80,15 @@ pack-checkin: l_Library l_Library_LaunchDaemons build_binary sign_binary
 	@sudo chmod 755 ${WORK_D}/Library/Crypt/checkin
 	@sudo chown -R root:wheel ${WORK_D}
 	@sudo ${INSTALL} -m 644 -g wheel -o root Package/com.grahamgilbert.crypt.plist ${WORK_D}/Library/LaunchDaemons
+
+# luggage calls this after it writes the component plist and before pkgbuild.
+# Turning off the version check installs the bundle even over a newer one, so
+# a rollback also lands.
+modify_packageroot:
+	@i=0; while sudo plutil -extract "$$i" xml1 -o /dev/null "${SCRATCH_D}/luggage.pkg.component.plist" 2>/dev/null; do \
+		sudo plutil -replace "$$i.BundleIsVersionChecked" -bool NO "${SCRATCH_D}/luggage.pkg.component.plist"; \
+		i=$$((i + 1)); \
+	done
 
 dist: pkg
 	@sudo rm -f Distribution
