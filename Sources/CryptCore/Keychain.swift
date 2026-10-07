@@ -122,7 +122,7 @@ func addStringToKeychain(stringToAdd item: String, withLabel label: String, keyc
     return false
   }
 
-  cryptLog("Attempting to add String to KeyChain with label: %{public}s", log: keychainLog, type: .default, label)
+  cryptLog("Attempting to add String to KeyChain with label: %{public}@", log: keychainLog, type: .default, label)
   let addition = item.data(using: String.Encoding.utf8)!
   var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                               kSecAttrLabel as String: label,
@@ -142,7 +142,7 @@ func addStringToKeychain(stringToAdd item: String, withLabel label: String, keyc
   let status = SecItemAdd(query as CFDictionary, nil)
 
   if status != errSecSuccess {
-    cryptLog("Failed to add String to KeyChain with Error: %{public}s", log: keychainLog,
+    cryptLog("Failed to add String to KeyChain with Error: %{public}@", log: keychainLog,
            type: .error, translateErrCode(status))
     return false
   }
@@ -167,14 +167,14 @@ func addStringToKeychain(stringToAdd item: String, withLabel label: String, keyc
 /// The function does not throw Swift-level errors but uses `os_log` for logging and
 /// diagnostics, particularly when the keychain cannot be opened or when errors are encountered.
 func getSecKeychain(path: String) -> SecKeychain? {
-  cryptLog("Fetching keychain at path: [%{public}s], with getSecKeychain.", log: keychainLog, type: .default, path)
+  cryptLog("Fetching keychain at path: [%{public}@], with getSecKeychain.", log: keychainLog, type: .default, path)
 
   var keychain: SecKeychain?
 
   let openStatus = SecKeychainOpen(path, &keychain)
 
   if openStatus != kOSReturnSuccess {
-    cryptLog("Failed to open keychain with Error: %{public}s", log: keychainLog,
+    cryptLog("Failed to open keychain with Error: %{public}@", log: keychainLog,
            type: .error, translateErrCode(openStatus))
     return nil
   }
@@ -218,7 +218,7 @@ func getSecKeychain(path: String) -> SecKeychain? {
 /// ```
 func syncRecoveryKeyToKeychain(label: String, recoveryKey: String, keychain: String, apps: [String], owners: [String], makeInvisible: Bool = true) -> Bool {
 
-  cryptLog("Starting user info sync of item label: [%{public}s] to the keychain: [%{public}s].", log: keychainLog, type: .default, label, keychain)
+  cryptLog("Starting user info sync of item label: [%{public}@] to the keychain: [%{public}@].", log: keychainLog, type: .default, label, keychain)
 
   // get a SecKeychain reference so we know which keychain to put the info in.
   guard let secKeychain = getSecKeychain(path: keychain) else {
@@ -252,7 +252,7 @@ func syncRecoveryKeyToKeychain(label: String, recoveryKey: String, keychain: Str
     let deleteStatus = deletePasswordByLabel(inKeychain: secKeychain, withLabel: label)
 
     if deleteStatus != true {
-      cryptLog("Failed to delete our user info of item label: [%{public}s] from the keychain: [%{public}s].", log: keychainLog, type: .error, label, keychain)
+      cryptLog("Failed to delete our user info of item label: [%{public}@] from the keychain: [%{public}@].", log: keychainLog, type: .error, label, keychain)
       return false
     }
   }
@@ -267,11 +267,11 @@ func syncRecoveryKeyToKeychain(label: String, recoveryKey: String, keychain: Str
   let addStringStatus = addStringToKeychain(stringToAdd: recoveryKey, withLabel: label, keychain: keychain, isInvisible: makeInvisible, withAccess: recoveryKeyAccess)
 
   if addStringStatus != true {
-    cryptLog("Failed to add our user info of item label: [%{public}s] to the keychain: [%{public}s].", log: keychainLog, type: .error, label, keychain)
+    cryptLog("Failed to add our user info of item label: [%{public}@] to the keychain: [%{public}@].", log: keychainLog, type: .error, label, keychain)
     return false
   }
 
-  cryptLog("Successfully added recovery key with label: [%{public}s] to the keychain: [%{public}s].", log: keychainLog, type: .default, label, keychain)
+  cryptLog("Successfully added recovery key with label: [%{public}@] to the keychain: [%{public}@].", log: keychainLog, type: .default, label, keychain)
   return true
 
 }
@@ -398,15 +398,15 @@ func updatePasswordForLabel(label: String, password: String, keychain: SecKeycha
     updateQuery[kSecAttrAccessControl] = access
   }
 
-  cryptLog("Attempting to update password for label %{pubic}@.", log: keychainLog, type: .default, label)
+  cryptLog("Attempting to update password for label %{public}@.", log: keychainLog, type: .default, label)
   let updateResult = SecItemUpdate(searchQ as CFDictionary, updateQuery as CFDictionary)
 
   if updateResult != kOSReturnSuccess {
-    cryptLog("Failed to update item with error: %{pubic}@", log: keychainLog, type: .error, translateErrCode(updateResult))
+    cryptLog("Failed to update item with error: %{public}@", log: keychainLog, type: .error, translateErrCode(updateResult))
     return false
   }
 
-  cryptLog("Updating password for label %{pubic}@ was successful.", log: keychainLog, type: .default, label)
+  cryptLog("Updating password for label %{public}@ was successful.", log: keychainLog, type: .default, label)
   return true
 }
 
@@ -793,7 +793,7 @@ func updatePartitionIDDescription(existingDescription: CFString, teamIDs: [Strin
 
   var existingParitions = propertyListObject["Partitions"]
 
-  cryptLog("Existing TeamID Description: [%{public}@]", log: keychainLog, type: .default, existingParitions!)
+  cryptLog("Existing TeamID Description: [%{public}@]", log: keychainLog, type: .default, String(describing: existingParitions))
 
   var updatedIDs: Bool = false
 

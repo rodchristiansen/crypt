@@ -70,7 +70,9 @@ private let cryptLogCategories: [ObjectIdentifier: String] = [
   ObjectIdentifier(serverLog): "Server",
 ]
 
-private let managedLogQueue = DispatchQueue(label: cryptBundleID + ".managedlog")
+// Serializes records within this process so a multi-line record reaches the
+// file in one write(2); O_APPEND keeps records from other processes whole.
+private let managedLogLock = NSLock()
 
 private let managedLogStamp: DateFormatter = {
   let f = DateFormatter()
@@ -106,46 +108,67 @@ public enum ManagedLog {
   /// than once; a directory that cannot be created is not fatal, the records
   /// simply go to the unified log and, when echoing, to stdout.
   public static func prepare(now: Date = Date()) {
-    managedLogQueue.sync { roll(now: now) }
+    managedLogLock.withLock { roll(now: now) }
   }
 
-  /// Appends one record, honouring `minimumLevel`.
+  /// Appends one record, honouring `minimumLevel`. Written synchronously:
+  /// authorizationhost can exit or crash straight after a record is logged,
+  /// and a queued write would be lost with it.
   public static func write(_ level: CryptLogLevel, category: String, _ text: String) {
     guard level >= minimumLevel else { return }
-    let record = "[\(managedLogStamp.string(from: Date()))] "
-      + "\(level.label.padding(toLength: 5, withPad: " ", startingAt: 0)) \(category): \(text)\n"
     if echoToStandardOutput {
       FileHandle.standardOutput.write(Data(text.utf8) + Data("\n".utf8))
     }
-    managedLogQueue.async { append(record) }
+    let block = managedLogRecords(text, level: level.label, category: category,
+                                  stamp: managedLogStamp.string(from: Date()))
+    managedLogLock.withLock { appendManagedLog(block) }
   }
 
-  /// Renames the current log when it was last written on an earlier day and
-  /// removes rolled files beyond `managedLogGenerations`.
+  /// Moves records written on earlier days into crypt-yyyy-MM-dd.log and
+  /// removes rolled files beyond `managedLogGenerations`. The day comes from
+  /// the "[yyyy-MM-dd HH:mm:ss]" that opens each record, not the file's mtime,
+  /// which other writers keep moving. The live file is renamed to a private name
+  /// before it is read, so writers that append meanwhile recreate it; the
+  /// private copy is removed only once all of it reached the rolled files.
   static func roll(directory: String = managedLogDirectory, name: String = "crypt.log", now: Date = Date()) {
+    makeManagedLogDirectory(directory)
     let fm = FileManager.default
-    try? fm.createDirectory(atPath: directory, withIntermediateDirectories: true,
-                            attributes: [.posixPermissions: 0o755])
     let path = directory + "/" + name
-    guard let attrs = try? fm.attributesOfItem(atPath: path),
-          let modified = attrs[.modificationDate] as? Date,
-          !Calendar.current.isDate(modified, inSameDayAs: now)
-    else { return }
-
     let base = (name as NSString).deletingPathExtension
-    let rolled = "\(directory)/\(base)-\(rolledLogStamp.string(from: modified)).log"
-    if fm.fileExists(atPath: rolled) {
-      // Two rolls in one day: append the current file to the existing one.
-      if let existing = FileHandle(forWritingAtPath: rolled), let old = fm.contents(atPath: path) {
-        existing.seekToEndOfFile()
-        existing.write(old)
-        existing.closeFile()
-      }
-      try? fm.removeItem(atPath: path)
-    } else {
-      try? fm.moveItem(atPath: path, toPath: rolled)
+    let pending = "\(directory)/.\(base).rolling"
+    let today = rolledLogStamp.string(from: now)
+    if !fm.fileExists(atPath: pending) {
+      guard let data = fm.contents(atPath: path),
+            let text = String(data: data, encoding: .utf8),
+            let first = recordDay(text), first != today,
+            rename(path, pending) == 0
+      else { return }
     }
+    guard let data = fm.contents(atPath: pending), let text = String(data: data, encoding: .utf8) else { return }
+    var byDay: [(String, String)] = []
+    var day = recordDay(text) ?? today
+    for line in text.split(separator: "\n", omittingEmptySubsequences: false) where !line.isEmpty {
+      if let d = recordDay(String(line)) { day = d }
+      if let last = byDay.last, last.0 == day {
+        byDay[byDay.count - 1].1 += line + "\n"
+      } else {
+        byDay.append((day, line + "\n"))
+      }
+    }
+    var complete = true
+    for (d, chunk) in byDay {
+      let target = d == today ? path : "\(directory)/\(base)-\(d).log"
+      if !appendManagedLog(chunk, path: target, directory: directory) { complete = false }
+    }
+    if complete { _ = unlink(pending) }
     prune(directory: directory, base: base)
+  }
+
+  /// The yyyy-MM-dd that opens a record line, if the text starts with one.
+  static func recordDay(_ text: String) -> String? {
+    guard text.hasPrefix("["), text.count >= 11 else { return nil }
+    let day = String(text.dropFirst().prefix(10))
+    return rolledLogStamp.date(from: day) == nil ? nil : day
   }
 
   private static func prune(directory: String, base: String) {
@@ -160,19 +183,100 @@ public enum ManagedLog {
     }
   }
 
-  private static func append(_ record: String) {
-    let fm = FileManager.default
-    if !fm.fileExists(atPath: managedLogDirectory) {
-      try? fm.createDirectory(atPath: managedLogDirectory, withIntermediateDirectories: true,
-                              attributes: [.posixPermissions: 0o755])
+}
+
+/// Formats one message as managed-log records, one per non-empty line, each
+/// with the "[timestamp] LEVEL Category:" prefix.
+func managedLogRecords(_ text: String, level: String, category: String, stamp: String) -> String {
+  let padded = level.padding(toLength: 5, withPad: " ", startingAt: 0)
+  var out = ""
+  // "\r\n" is one Character in Swift, so it is matched as a separator itself.
+  let lines = text.split(omittingEmptySubsequences: true) { $0 == "\n" || $0 == "\r\n" || $0 == "\r" }
+  for line in lines {
+    out += "[\(stamp)] \(padded) \(category): \(line)\n"
+  }
+  return out
+}
+
+/// Fills an os_log format string for the managed log file without
+/// String(format:). String(format:) reads `%s` as a C pointer, so a Swift
+/// String logged with `%{public}s` crashed the authorization plugin in strlen
+/// at login. Each specifier is replaced by its argument's description instead,
+/// which cannot misread memory whatever the specifier says.
+func renderManagedLog(_ template: String, _ args: [CVarArg]) -> String {
+  var out = ""
+  var next = args.makeIterator()
+  var chars = template[...]
+  while let i = chars.firstIndex(of: "%") {
+    out += chars[..<i]
+    var j = chars.index(after: i)
+    if j < chars.endIndex, chars[j] == "%" {
+      out += "%"
+      chars = chars[chars.index(after: j)...]
+      continue
     }
-    if !fm.fileExists(atPath: managedLogPath) {
-      fm.createFile(atPath: managedLogPath, contents: nil, attributes: [.posixPermissions: 0o644])
+    if j < chars.endIndex, chars[j] == "{", let close = chars[j...].firstIndex(of: "}") {
+      j = chars.index(after: close)
     }
-    guard let handle = FileHandle(forWritingAtPath: managedLogPath) else { return }
-    defer { handle.closeFile() }
-    handle.seekToEndOfFile()
-    handle.write(Data(record.utf8))
+    // Flags, width, precision and length modifiers, then the conversion.
+    while j < chars.endIndex, "-+ #0123456789.hlqLzjt".contains(chars[j]) {
+      j = chars.index(after: j)
+    }
+    guard j < chars.endIndex else {
+      out += chars[i...]
+      chars = chars[chars.endIndex...]
+      break
+    }
+    out += next.next().map { String(describing: $0) } ?? "<missing>"
+    chars = chars[chars.index(after: j)...]
+  }
+  out += chars
+  return out
+}
+
+/// Appends text to the managed log with POSIX calls only, returning whether
+/// all of it was written. Every failure is otherwise ignored: this runs inside
+/// authorizationhost, where a trap or an Objective-C exception from FileHandle
+/// would lock the user out of the Mac. The file is opened with O_APPEND for
+/// each record, so the plugin and the checkin never overwrite each other, and
+/// a file the checkin rolled away is recreated.
+@discardableResult
+func appendManagedLog(_ text: String, path: String = managedLogPath,
+                      directory: String = managedLogDirectory) -> Bool {
+  let bytes = Array(text.utf8)
+  if bytes.isEmpty { return true }
+  let flags = O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC | O_NOFOLLOW
+  var fd = open(path, flags, mode_t(0o644))
+  if fd < 0 && errno == ENOENT {
+    makeManagedLogDirectory(directory)
+    fd = open(path, flags, mode_t(0o644))
+  }
+  if fd < 0 { return false }
+  defer { _ = close(fd) }
+  return bytes.withUnsafeBytes { buf -> Bool in
+    guard let base = buf.baseAddress else { return false }
+    var offset = 0
+    while offset < buf.count {
+      let n = Darwin.write(fd, base + offset, buf.count - offset)
+      if n > 0 {
+        offset += n
+      } else if n < 0 && errno == EINTR {
+        continue
+      } else {
+        return false
+      }
+    }
+    return true
+  }
+}
+
+/// mkdir -p with mkdir(2), ignoring every error; the open that follows is
+/// what decides whether the record can be written.
+private func makeManagedLogDirectory(_ directory: String) {
+  var partial = ""
+  for component in directory.split(separator: "/", omittingEmptySubsequences: true) {
+    partial += "/" + component
+    _ = mkdir(partial, mode_t(0o755))
   }
 }
 
@@ -212,10 +316,7 @@ public func cryptLog(_ message: StaticString, log: OSLog = .default, type: OSLog
   case 3: os_log(message, log: log, type: type, args[0], args[1], args[2])
   default: os_log(message, log: log, type: type, args[0], args[1], args[2], args[3])
   }
-  let template = "\(message)"
-    .replacingOccurrences(of: "%{public}", with: "%")
-    .replacingOccurrences(of: "%{private}", with: "%")
-  let text = args.isEmpty ? template : String(format: template, arguments: args)
+  let text = renderManagedLog("\(message)", args)
   let category = cryptLogCategories[ObjectIdentifier(log)] ?? "Crypt"
   ManagedLog.write(managedLogLevel(type), category: category, text)
 }
