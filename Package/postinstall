@@ -6,3 +6,52 @@ set -e
 /bin/mkdir -p "/Library/Managed Encryption/logs"
 
 /Library/Crypt/checkin auth-mechs install
+
+# Managed Encryption Escrow: the Prefs / Run / Logs window and its privileged
+# helper ship in this package. Nothing below may fail the install: the login
+# plugin is already registered, and the window is optional.
+TARGET="${3%/}"
+APP_PATH="${TARGET}/Applications/Utilities/Managed Encryption Escrow.app"
+HELPER_LABEL="com.grahamgilbert.crypt.helper"
+HELPER_PLIST="${TARGET}/Library/LaunchDaemons/${HELPER_LABEL}.plist"
+HELPER_MIN_MACOS=14
+
+# The window used to ship as its own package. Its files now belong to this
+# package, so drop the old receipt rather than leave two owners of one app.
+if /usr/sbin/pkgutil --volume "${TARGET:-/}" --pkg-info com.grahamgilbert.crypt.gui >/dev/null 2>&1; then
+    /usr/sbin/pkgutil --volume "${TARGET:-/}" --forget com.grahamgilbert.crypt.gui >/dev/null 2>&1 \
+        && echo "Forgot the old com.grahamgilbert.crypt.gui receipt" \
+        || echo "WARNING: could not forget the old com.grahamgilbert.crypt.gui receipt"
+fi
+
+if [[ ! -f "${HELPER_PLIST}" ]]; then
+    echo "WARNING: ${HELPER_PLIST} is missing; the escrow window cannot run checkin"
+    exit 0
+fi
+/bin/chmod 644 "${HELPER_PLIST}"
+/usr/sbin/chown root:wheel "${HELPER_PLIST}"
+
+if [[ -n "${TARGET}" ]]; then
+    echo "Installed to ${TARGET}; the escrow helper loads at that volume's next start-up"
+    exit 0
+fi
+
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister "${APP_PATH}" 2>/dev/null || true
+
+# The window and helper need macOS 14; checkin and the plugin do not. On an
+# older Mac leave the helper unloaded instead of refusing the whole install.
+os_major=$(/usr/bin/sw_vers -productVersion | /usr/bin/cut -d. -f1)
+if (( os_major < HELPER_MIN_MACOS )); then
+    echo "macOS ${os_major} is older than ${HELPER_MIN_MACOS}; the escrow helper is not loaded"
+    /bin/launchctl bootout "system/${HELPER_LABEL}" 2>/dev/null || true
+    exit 0
+fi
+
+# Restart the helper so it runs the binary just installed.
+/bin/launchctl bootout "system/${HELPER_LABEL}" 2>/dev/null || true
+if output=$(/bin/launchctl bootstrap system "${HELPER_PLIST}" 2>&1); then
+    echo "Escrow helper loaded: ${HELPER_LABEL}"
+else
+    echo "WARNING: launchctl bootstrap failed for ${HELPER_LABEL}: ${output}"
+fi
+exit 0

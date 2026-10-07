@@ -11,6 +11,7 @@ PACKAGE_NAME=${TITLE}
 PAYLOAD=\
 	pack-plugin\
 	pack-checkin \
+	pack-escrow \
 	pack-scripts \
 	remove-xattrs
 
@@ -81,12 +82,26 @@ pack-checkin: l_Library l_Library_LaunchDaemons build_binary sign_binary
 	@sudo chown -R root:wheel ${WORK_D}
 	@sudo ${INSTALL} -m 644 -g wheel -o root Package/com.grahamgilbert.crypt.plist ${WORK_D}/Library/LaunchDaemons
 
+# The Managed Encryption Escrow window, its privileged helper and the helper's
+# LaunchDaemon ride in this package; there is no separate installer.
+ESCROW_APP_PATH=Applications/Utilities/Managed Encryption Escrow.app
+
+pack-escrow: l_Library_LaunchDaemons
+	$(MAKE) -C ManagedEncryptionEscrow app VERSION="${PACKAGE_VERSION}" SIGNING_IDENTITY_APP="${DEV_APP_CERT}"
+	@sudo mkdir -p ${WORK_D}/Applications/Utilities
+	@sudo /usr/bin/ditto "ManagedEncryptionEscrow/build/pkg-root/${ESCROW_APP_PATH}" "${WORK_D}/${ESCROW_APP_PATH}"
+	@sudo chown -R root:wheel ${WORK_D}/Applications
+	@sudo chmod 775 ${WORK_D}/Applications
+	@sudo chmod 755 ${WORK_D}/Applications/Utilities
+	@sudo ${INSTALL} -m 644 -g wheel -o root Package/com.grahamgilbert.crypt.helper.plist ${WORK_D}/Library/LaunchDaemons
+
 # luggage calls this after it writes the component plist and before pkgbuild.
 # Turning off the version check installs the bundle even over a newer one, so
 # a rollback also lands.
 modify_packageroot:
 	@i=0; while sudo plutil -extract "$$i" xml1 -o /dev/null "${SCRATCH_D}/luggage.pkg.component.plist" 2>/dev/null; do \
 		sudo plutil -replace "$$i.BundleIsVersionChecked" -bool NO "${SCRATCH_D}/luggage.pkg.component.plist"; \
+		sudo plutil -replace "$$i.BundleIsRelocatable" -bool NO "${SCRATCH_D}/luggage.pkg.component.plist"; \
 		i=$$((i + 1)); \
 	done
 

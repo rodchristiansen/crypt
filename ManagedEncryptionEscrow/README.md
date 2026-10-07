@@ -1,9 +1,10 @@
 # Managed Encryption Escrow
 
 A Prefs / Run / Logs window for Crypt, installed as
-`/Applications/Utilities/Managed Encryption Escrow.app`. It leaves Crypt's
-`checkin`, its login plugin and the `com.grahamgilbert.crypt` launch daemon
-unchanged.
+`/Applications/Utilities/Managed Encryption Escrow.app`. It ships inside
+`Crypt-<version>.pkg` (package identifier `com.grahamgilbert.Crypt`) beside
+`checkin`, the login plugin and the `com.grahamgilbert.crypt` launch daemon,
+and leaves all three unchanged.
 
 - **Prefs** shows Crypt's settings as `checkin` resolves them. A key a
   configuration profile manages shows its managed value, locked. Every field
@@ -18,8 +19,9 @@ unchanged.
   `/Library/Managed Encryption/logs`.
 
 The window never runs as root. Runs and preference writes go through
-`ManagedEncryptionEscrowHelper`, which the package installs as the
-LaunchDaemon `com.grahamgilbert.crypt.helper`. The helper:
+`ManagedEncryptionEscrowHelper`, which the Crypt package installs as the
+LaunchDaemon `com.grahamgilbert.crypt.helper` and loads in its postinstall on
+macOS 14 or later. The helper:
 
 - accepts only a client signed as `com.grahamgilbert.crypt.gui` by its own
   Team ID, so an unsigned build refuses every client;
@@ -39,8 +41,15 @@ swift test
 ```
 
 ```
-make pkg
+make app
 ```
 
-Set `SIGNING_IDENTITY_APP` and `SIGNING_IDENTITY_PKG` to sign the app and the
-package, and `NOTARIZATION_PROFILE` for `make notarize`.
+`make app` stages the bundle under `build/pkg-root`; set `SIGNING_IDENTITY_APP`
+to sign the helper and the app. The installer is Crypt's:
+`Package/build-unsigned-pkg.sh` at the repository root builds it with the app
+inside.
+
+Earlier releases shipped the window as a separate
+`ManagedEncryptionEscrow-<version>.pkg` (identifier
+`com.grahamgilbert.crypt.gui`). The Crypt package's postinstall forgets that
+receipt, so the app has one owner after an upgrade.
