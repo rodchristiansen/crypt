@@ -15,6 +15,10 @@ TARGET="${3%/}"
 reload_daemon() {
     local label="$1" plist="$2" output i
     /bin/launchctl bootout "system/${label}" 2>/dev/null || true
+    # A job unloaded with `launchctl unload -w` (or `disable`) stays on
+    # launchd's disabled list, and bootstrap then fails with error 5. Before
+    # this pkg dropped its restart, the reboot hid that; clear it explicitly.
+    /bin/launchctl enable "system/${label}" 2>/dev/null || true
     for i in {1..10}; do
         /bin/launchctl print "system/${label}" >/dev/null 2>&1 || break
         /bin/sleep 0.5
