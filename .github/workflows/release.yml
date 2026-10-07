@@ -58,7 +58,8 @@ jobs:
       - name: Stage the artifact
         run: |
           mkdir -p artifacts
-          cp .build/apple/Products/Release/checkin artifacts/checkin
+          bin=$(MACOSX_DEPLOYMENT_TARGET=13.0 swift build -c release --arch arm64 --arch x86_64 --product checkin --show-bin-path)
+          cp "$bin/checkin" artifacts/checkin
           lipo -info artifacts/checkin
           shasum -a 256 artifacts/checkin | tee artifacts/checkin.sha256
 
