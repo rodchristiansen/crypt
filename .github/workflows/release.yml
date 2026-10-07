@@ -93,4 +93,7 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" artifacts/checkin artifacts/checkin.sha256 artifacts/Crypt-*.pkg artifacts/Crypt-*.pkg.sha256 artifacts/ManagedEncryptionEscrow-*.pkg artifacts/ManagedEncryptionEscrow-*.pkg.sha256 --clobber
+        run: |
+          gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 \
+            || gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --notes ""
+          gh release upload "${GITHUB_REF_NAME}" artifacts/checkin artifacts/checkin.sha256 artifacts/Crypt-*.pkg artifacts/Crypt-*.pkg.sha256 artifacts/ManagedEncryptionEscrow-*.pkg artifacts/ManagedEncryptionEscrow-*.pkg.sha256 --clobber
