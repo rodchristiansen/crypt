@@ -43,13 +43,39 @@ jobs:
           lipo -info artifacts/checkin
           shasum -a 256 artifacts/checkin | tee artifacts/checkin.sha256
 
+      - name: Derive the version from the tag
+        id: version
+        env:
+          REF_NAME: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          tag="${REF_NAME#refs/tags/}"
+          version="${tag#v}"
+          if ! [[ "$version" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]{4}$ ]]; then
+            # A manual run of a branch still builds, stamped with the time.
+            version=$(date -u '+%Y.%m.%d.%H%M')
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=${version//./}" >> "$GITHUB_OUTPUT"
+
+      # The complete Crypt package: the authorisation plugin, checkin, its
+      # LaunchDaemon and the scripts that register the login mechanisms. Its
+      # build number comes from the tag, so it always sorts above upstream's.
+      - name: Build the unsigned Crypt package
+        run: |
+          set -euo pipefail
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XCODE" ]; then export DEVELOPER_DIR="$XCODE/Contents/Developer"; fi
+          Package/build-unsigned-pkg.sh "${{ steps.version.outputs.version }}" "${{ steps.version.outputs.build }}" artifacts
+          cd artifacts && shasum -a 256 "Crypt-${{ steps.version.outputs.version }}.pkg" > "Crypt-${{ steps.version.outputs.version }}.pkg.sha256"
+
       - name: Build the unsigned Managed Encryption Escrow package
         working-directory: ManagedEncryptionEscrow
         run: |
           set -euo pipefail
           XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
           if [ -n "$XCODE" ]; then export DEVELOPER_DIR="$XCODE/Contents/Developer"; fi
-          GUI_VERSION=$(date -u '+%Y.%m.%d.%H%M')
+          GUI_VERSION="${{ steps.version.outputs.version }}"
           make pkg VERSION="$GUI_VERSION"
           cp "build/ManagedEncryptionEscrow-${GUI_VERSION}.pkg" ../artifacts/
           cd ../artifacts && shasum -a 256 "ManagedEncryptionEscrow-${GUI_VERSION}.pkg" > "ManagedEncryptionEscrow-${GUI_VERSION}.pkg.sha256"
@@ -59,13 +85,12 @@ jobs:
           name: checkin-universal
           path: artifacts/
 
-      # The binary and the Managed Encryption Escrow package published here are
-      # unsigned and unnotarised; the window's helper refuses every client
-      # until both are signed with the same Developer ID. The installer
-      # package is built and signed separately, by an operator holding the
-      # Developer ID certificates, with `make dist && make notarize`.
+      # The binary and both packages published here are unsigned and
+      # unnotarised. Whoever deploys them signs every binary inside, innermost
+      # first, then the packages; the window's helper refuses every client
+      # until the app and helper carry the same Developer ID.
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" artifacts/checkin artifacts/checkin.sha256 artifacts/ManagedEncryptionEscrow-*.pkg artifacts/ManagedEncryptionEscrow-*.pkg.sha256 --clobber
+        run: gh release upload "${GITHUB_REF_NAME}" artifacts/checkin artifacts/checkin.sha256 artifacts/Crypt-*.pkg artifacts/Crypt-*.pkg.sha256 artifacts/ManagedEncryptionEscrow-*.pkg artifacts/ManagedEncryptionEscrow-*.pkg.sha256 --clobber
