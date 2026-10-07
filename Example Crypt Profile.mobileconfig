@@ -41,10 +41,12 @@
                 <true/>
                 <key>OutputPath</key>
                 <string>/var/root/crypt_output.plist</string>
-                <key>AdditionalCurlOpts</key>
-                <array>
-                    <string>--ssl-reqd</string>
-                </array>
+                <key>ServerTimeout</key>
+                <integer>30</integer>
+                <key>ServerRetryAttempts</key>
+                <integer>3</integer>
+                <key>LogLevel</key>
+                <string>INFO</string>
                 <key>PostRunCommand</key>
                 <array>
                     <string>/usr/local/munki/managedsoftwareupdate</string>

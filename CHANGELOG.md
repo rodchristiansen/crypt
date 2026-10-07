@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+Crypt's client is now Swift throughout. The `checkin` binary was rewritten from
+Go into a SwiftPM executable that shares the `CryptCore` sources with the
+authorization plugin, so the keychain, preference and FileVault handling exists
+once rather than twice in two languages. The Go and Bazel trees are gone.
+
+### Enhancements
+
+- Escrow goes over URLSession rather than shelling out to `/usr/bin/curl`, with
+  configurable timeouts (`ServerTimeout`), retries (`ServerRetryAttempts`) and
+  an optional API key (`APIKey`, `APIKeyHeader`). Mutual TLS via
+  `CommonNameForEscrow` now uses the same request path as everything else.
+- `checkin` gained subcommands: `escrow`, `rotate`, `verify`, `config` and
+  `auth-mechs`. The single-dash flags of earlier versions still work.
+- `checkin verify` reports FileVault state, whether a key is held, whether it
+  still unlocks the disk, and when it was last escrowed, as text or JSON.
+- `checkin config list` shows every setting, its resolved value, and which layer
+  supplied it.
+- Configuration now resolves from the environment (`CRYPT_SERVER_URL` and
+  friends), then the preference domain, then `/Library/Managed Encryption/config.plist`,
+  then the built-in default.
+- Distinct exit codes so a management system can tell a configuration problem
+  from a server problem from a machine with no key yet.
+- Serial number, hardware UUID, computer name and OS version are read through
+  IOKit, SystemConfiguration and ProcessInfo instead of by parsing `scutil` and
+  `sw_vers` output.
+- `LogLevel` sets the floor for the managed log; `--verbose` raises it for one run.
+
+### Removed
+
+- `AdditionalCurlOpts`, which has no meaning now that `curl` is not involved.
+
 ## [v4.1.0](https://github.com/grahamgilbert/crypt/compare/4.0.0...4.1.0)
 
 Crypt 4.1.0 only supports macOS 11 and up. Older versions are not supported.

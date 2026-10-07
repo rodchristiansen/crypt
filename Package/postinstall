@@ -5,4 +5,4 @@ set -e
 # directory must exist before the daemon's first launch.
 /bin/mkdir -p "/Library/Managed Encryption/logs"
 
-/Library/Crypt/checkin -install
+/Library/Crypt/checkin auth-mechs install
