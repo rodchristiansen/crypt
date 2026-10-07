@@ -43,16 +43,29 @@ jobs:
           lipo -info artifacts/checkin
           shasum -a 256 artifacts/checkin | tee artifacts/checkin.sha256
 
+      - name: Build the unsigned Managed Encryption Escrow package
+        working-directory: ManagedEncryptionEscrow
+        run: |
+          set -euo pipefail
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -n "$XCODE" ]; then export DEVELOPER_DIR="$XCODE/Contents/Developer"; fi
+          GUI_VERSION=$(date -u '+%Y.%m.%d.%H%M')
+          make pkg VERSION="$GUI_VERSION"
+          cp "build/ManagedEncryptionEscrow-${GUI_VERSION}.pkg" ../artifacts/
+          cd ../artifacts && shasum -a 256 "ManagedEncryptionEscrow-${GUI_VERSION}.pkg" > "ManagedEncryptionEscrow-${GUI_VERSION}.pkg.sha256"
+
       - uses: actions/upload-artifact@v4
         with:
           name: checkin-universal
           path: artifacts/
 
-      # The binary published here is unsigned and unnotarised. The installer
+      # The binary and the Managed Encryption Escrow package published here are
+      # unsigned and unnotarised; the window's helper refuses every client
+      # until both are signed with the same Developer ID. The installer
       # package is built and signed separately, by an operator holding the
       # Developer ID certificates, with `make dist && make notarize`.
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "${GITHUB_REF_NAME}" artifacts/checkin artifacts/checkin.sha256 --clobber
+        run: gh release upload "${GITHUB_REF_NAME}" artifacts/checkin artifacts/checkin.sha256 artifacts/ManagedEncryptionEscrow-*.pkg artifacts/ManagedEncryptionEscrow-*.pkg.sha256 --clobber
