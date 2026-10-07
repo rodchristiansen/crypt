@@ -12,6 +12,8 @@
     <string>Managed Encryption Escrow</string>
     <key>CFBundleIconFile</key>
     <string>ManagedEncryptionEscrow</string>
+    <key>CFBundleIconName</key>
+    <string>ManagedEncryptionEscrow</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

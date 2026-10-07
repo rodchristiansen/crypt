@@ -1,0 +1,39 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "display-p3:0.19600,0.43900,0.81600,1.00000",
+      "display-p3:0.05900,0.22700,0.51800,1.00000"
+    ]
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "glass": true,
+          "image-name": "keyshield.png",
+          "name": "KeyShield",
+          "position": {
+            "scale": 1.5,
+            "translation-in-points": [
+              0,
+              0
+            ]
+          }
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.5
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}

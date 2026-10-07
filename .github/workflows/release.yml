@@ -19,13 +19,32 @@ permissions:
 jobs:
   build:
     name: Build the universal checkin binary
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
+      # Every macOS job builds with Xcode 27, which the app icons need: an older
+      # actool drops their light and dark appearances. The xcode-27 image ships
+      # it; stop here if it is gone rather than build with another Xcode.
+      - name: Select Xcode 27
+        working-directory: .
+        run: |
+          set -euo pipefail
+          XCODE=/Applications/Xcode_27.app
+          if [ ! -d "$XCODE" ]; then
+            XCODE=$(ls -d /Applications/Xcode_27*.app 2>/dev/null | grep -v -i beta | sort -V | tail -1 || true)
+          fi
+          if [ -z "$XCODE" ] || [ ! -d "$XCODE" ]; then
+            echo "::error::Xcode 27 is not installed on this runner. Installed: $(ls -d /Applications/Xcode*.app 2>/dev/null | tr '\n' ' ')"
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          echo "DEVELOPER_DIR=$XCODE/Contents/Developer" >> "$GITHUB_ENV"
+          xcodebuild -version
+          xcrun --show-sdk-version
 
       - name: Show toolchain
         run: swift --version
@@ -66,8 +85,6 @@ jobs:
       - name: Build the unsigned Crypt package
         run: |
           set -euo pipefail
-          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
-          if [ -n "$XCODE" ]; then export DEVELOPER_DIR="$XCODE/Contents/Developer"; fi
           Package/build-unsigned-pkg.sh "${{ steps.version.outputs.version }}" "${{ steps.version.outputs.build }}" artifacts
           cd artifacts && shasum -a 256 "Crypt-${{ steps.version.outputs.version }}.pkg" > "Crypt-${{ steps.version.outputs.version }}.pkg.sha256"
 
