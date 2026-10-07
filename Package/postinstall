@@ -7,10 +7,44 @@ set -e
 
 /Library/Crypt/checkin auth-mechs install
 
+TARGET="${3%/}"
+
+# Replace a running launchd job with the one on disk. bootout returns before
+# launchd has finished tearing the old job down, so wait for it to go, then
+# bootstrap, retrying once. Never fails the install.
+reload_daemon() {
+    local label="$1" plist="$2" output i
+    /bin/launchctl bootout "system/${label}" 2>/dev/null || true
+    for i in {1..10}; do
+        /bin/launchctl print "system/${label}" >/dev/null 2>&1 || break
+        /bin/sleep 0.5
+    done
+    for i in 1 2; do
+        if output=$(/bin/launchctl bootstrap system "${plist}" 2>&1); then
+            echo "Loaded ${label}"
+            return 0
+        fi
+        /bin/sleep 1
+    done
+    echo "WARNING: launchctl bootstrap failed for ${label}: ${output}"
+    return 0
+}
+
+# The login plugin needs no reload: SecurityAgent loads Crypt.bundle afresh at
+# each login, so the new build takes effect at the next one. checkin is a
+# LaunchDaemon, so reload it here and the new binary runs now rather than at
+# the next start-up. That is why this package asks for no restart.
+CHECKIN_LABEL="com.grahamgilbert.crypt"
+CHECKIN_PLIST="${TARGET}/Library/LaunchDaemons/${CHECKIN_LABEL}.plist"
+if [[ -z "${TARGET}" && -f "${CHECKIN_PLIST}" ]]; then
+    /bin/chmod 644 "${CHECKIN_PLIST}" || true
+    /usr/sbin/chown root:wheel "${CHECKIN_PLIST}" || true
+    reload_daemon "${CHECKIN_LABEL}" "${CHECKIN_PLIST}"
+fi
+
 # Managed Encryption Escrow: the Prefs / Run / Logs window and its privileged
 # helper ship in this package. Nothing below may fail the install: the login
 # plugin is already registered, and the window is optional.
-TARGET="${3%/}"
 APP_PATH="${TARGET}/Applications/Utilities/Managed Encryption Escrow.app"
 HELPER_LABEL="com.grahamgilbert.crypt.helper"
 HELPER_PLIST="${TARGET}/Library/LaunchDaemons/${HELPER_LABEL}.plist"
@@ -48,10 +82,5 @@ if (( os_major < HELPER_MIN_MACOS )); then
 fi
 
 # Restart the helper so it runs the binary just installed.
-/bin/launchctl bootout "system/${HELPER_LABEL}" 2>/dev/null || true
-if output=$(/bin/launchctl bootstrap system "${HELPER_PLIST}" 2>&1); then
-    echo "Escrow helper loaded: ${HELPER_LABEL}"
-else
-    echo "WARNING: launchctl bootstrap failed for ${HELPER_LABEL}: ${output}"
-fi
+reload_daemon "${HELPER_LABEL}" "${HELPER_PLIST}"
 exit 0
