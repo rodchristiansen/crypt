@@ -1,8 +1,9 @@
 #!/bin/bash
 # Builds an unsigned, unnotarised Crypt-<version>.pkg that installs everything
 # the signed `make dist` package installs: the authorisation plugin, the
-# checkin binary, its LaunchDaemon, the log rotation rule and the install
-# scripts. A release publishes this package; whoever deploys it signs every
+# checkin binary, its LaunchDaemon, the log rotation rule, the Managed
+# Encryption Escrow window with its privileged helper and LaunchDaemon, and
+# the install scripts. A release publishes this package; whoever deploys it signs every
 # binary inside, innermost first, and then the package itself.
 #
 # Usage: Package/build-unsigned-pkg.sh <version> <build-number> [output-dir]
@@ -57,18 +58,30 @@ archs="$(lipo -archs "$CHECKIN_BIN")"
 [[ "$archs" == *arm64* && "$archs" == *x86_64* ]] || { echo "checkin is not universal: $archs" >&2; exit 1; }
 git checkout -- Sources/checkin/Version.swift 2>/dev/null || true
 
+echo "Building Managed Encryption Escrow"
+ESCROW_APP_PATH="Applications/Utilities/Managed Encryption Escrow.app"
+make -C ManagedEncryptionEscrow app VERSION="$VERSION"
+ESCROW_APP="ManagedEncryptionEscrow/build/pkg-root/$ESCROW_APP_PATH"
+for bin in "$ESCROW_APP/Contents/MacOS/ManagedEncryptionEscrow" "$ESCROW_APP/Contents/MacOS/ManagedEncryptionEscrowHelper"; do
+    archs="$(lipo -archs "$bin")"
+    [[ "$archs" == *arm64* && "$archs" == *x86_64* ]] || { echo "$bin is not universal: $archs" >&2; exit 1; }
+done
+
 echo "Staging the payload"
 install -d -m 755 "$ROOT/Library/Security/SecurityAgentPlugins" "$ROOT/Library/Crypt" \
-    "$ROOT/Library/LaunchDaemons" "$ROOT/private/etc/newsyslog.d"
+    "$ROOT/Library/LaunchDaemons" "$ROOT/private/etc/newsyslog.d" "$ROOT/Applications/Utilities"
 ditto "$PLUGIN_SRC" "$ROOT/Library/Security/SecurityAgentPlugins/$PLUGIN_NAME"
 install -m 755 "$CHECKIN_BIN" "$ROOT/Library/Crypt/checkin"
 install -m 644 Package/com.grahamgilbert.crypt.plist "$ROOT/Library/LaunchDaemons/com.grahamgilbert.crypt.plist"
+ditto "$ESCROW_APP" "$ROOT/$ESCROW_APP_PATH"
+install -m 644 Package/com.grahamgilbert.crypt.helper.plist "$ROOT/Library/LaunchDaemons/com.grahamgilbert.crypt.helper.plist"
 install -m 644 Package/newsyslog.d/crypt.conf "$ROOT/private/etc/newsyslog.d/crypt.conf"
 install -m 755 Package/preinstall Package/postinstall "$SCRIPTS/"
 /usr/bin/xattr -cr "$ROOT"
 
-# Never let the installer skip the plugin because the bundle on the Mac has a
-# higher CFBundleVersion, and never relocate it to wherever a copy was moved.
+# Never let the installer skip the plugin or the app because the bundle on the
+# Mac has a higher CFBundleVersion, and never relocate either to wherever a
+# copy was moved.
 pkgbuild --analyze --root "$ROOT" "$WORK/component.plist" >/dev/null
 i=0
 while plutil -extract "$i" xml1 -o /dev/null "$WORK/component.plist" 2>/dev/null; do
@@ -91,4 +104,11 @@ grep -q "CFBundleVersion=\"$BUILD_NUMBER\"" "$expanded/Crypt.pkg/PackageInfo" ||
     echo "Crypt.bundle does not carry build number $BUILD_NUMBER" >&2
     exit 1
 }
+# Fail the release if any part of the escrow window is missing.
+payload="$(pkgutil --payload-files "$OUT_DIR/Crypt-${VERSION}.pkg")"
+for f in "./$ESCROW_APP_PATH/Contents/MacOS/ManagedEncryptionEscrow" \
+    "./$ESCROW_APP_PATH/Contents/MacOS/ManagedEncryptionEscrowHelper" \
+    "./Library/LaunchDaemons/com.grahamgilbert.crypt.helper.plist"; do
+    grep -qxF "$f" <<<"$payload" || { echo "payload is missing $f" >&2; exit 1; }
+done
 echo "Built $OUT_DIR/Crypt-${VERSION}.pkg (Crypt.bundle $BUILD_NUMBER)"

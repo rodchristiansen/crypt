@@ -1,8 +1,8 @@
 // swift-tools-version:6.0
 import PackageDescription
 
-// Managed Encryption Escrow: the Prefs / Run / Logs window for Crypt. It stands apart
-// from the Crypt package; checkin, the login plugin and their launchd job are
+// Managed Encryption Escrow: the Prefs / Run / Logs window for Crypt. It ships in
+// the Crypt package; checkin, the login plugin and their launchd job are
 // unchanged, and the GUI talks to the engine only through the root helper.
 let package = Package(
     name: "ManagedEncryptionEscrow",

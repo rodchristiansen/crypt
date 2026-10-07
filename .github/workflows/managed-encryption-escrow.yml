@@ -18,7 +18,7 @@ jobs:
         working-directory: ManagedEncryptionEscrow
     steps:
       - uses: actions/checkout@v4
-      - name: Test and build unsigned package
+      - name: Test and build the unsigned app
         run: |
           set -euo pipefail
           # Link against a macOS 26 SDK so the window gets the macOS 26
@@ -27,4 +27,4 @@ jobs:
           if [ -n "$XCODE" ]; then export DEVELOPER_DIR="$XCODE/Contents/Developer"; fi
           xcrun --show-sdk-version
           swift test
-          make pkg
+          make app

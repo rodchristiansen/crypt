@@ -59,8 +59,10 @@ jobs:
           echo "build=${version//./}" >> "$GITHUB_OUTPUT"
 
       # The complete Crypt package: the authorisation plugin, checkin, its
-      # LaunchDaemon and the scripts that register the login mechanisms. Its
-      # build number comes from the tag, so it always sorts above upstream's.
+      # LaunchDaemon, the Managed Encryption Escrow window with its helper and
+      # the helper's LaunchDaemon, and the scripts that register the login
+      # mechanisms and load the helper. Its build number comes from the tag,
+      # so it always sorts above upstream's.
       - name: Build the unsigned Crypt package
         run: |
           set -euo pipefail
@@ -69,25 +71,14 @@ jobs:
           Package/build-unsigned-pkg.sh "${{ steps.version.outputs.version }}" "${{ steps.version.outputs.build }}" artifacts
           cd artifacts && shasum -a 256 "Crypt-${{ steps.version.outputs.version }}.pkg" > "Crypt-${{ steps.version.outputs.version }}.pkg.sha256"
 
-      - name: Build the unsigned Managed Encryption Escrow package
-        working-directory: ManagedEncryptionEscrow
-        run: |
-          set -euo pipefail
-          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
-          if [ -n "$XCODE" ]; then export DEVELOPER_DIR="$XCODE/Contents/Developer"; fi
-          GUI_VERSION="${{ steps.version.outputs.version }}"
-          make pkg VERSION="$GUI_VERSION"
-          cp "build/ManagedEncryptionEscrow-${GUI_VERSION}.pkg" ../artifacts/
-          cd ../artifacts && shasum -a 256 "ManagedEncryptionEscrow-${GUI_VERSION}.pkg" > "ManagedEncryptionEscrow-${GUI_VERSION}.pkg.sha256"
-
       - uses: actions/upload-artifact@v4
         with:
           name: checkin-universal
           path: artifacts/
 
-      # The binary and both packages published here are unsigned and
+      # The binary and the package published here are unsigned and
       # unnotarised. Whoever deploys them signs every binary inside, innermost
-      # first, then the packages; the window's helper refuses every client
+      # first, then the package; the window's helper refuses every client
       # until the app and helper carry the same Developer ID.
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -96,4 +87,4 @@ jobs:
         run: |
           gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1 \
             || gh release create "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --notes ""
-          gh release upload "${GITHUB_REF_NAME}" artifacts/checkin artifacts/checkin.sha256 artifacts/Crypt-*.pkg artifacts/Crypt-*.pkg.sha256 artifacts/ManagedEncryptionEscrow-*.pkg artifacts/ManagedEncryptionEscrow-*.pkg.sha256 --clobber
+          gh release upload "${GITHUB_REF_NAME}" artifacts/checkin artifacts/checkin.sha256 artifacts/Crypt-*.pkg artifacts/Crypt-*.pkg.sha256 --clobber
