@@ -15,7 +15,6 @@ PAYLOAD=\
 	pack-scripts \
 	remove-xattrs
 
-SWIFT_BUILD_DIR=.build/apple/Products/Release
 
 # Crypt.bundle's CFBundleVersion. A timestamp always increases and sits above
 # upstream's commit-count build numbers, so the installer never treats this
@@ -66,7 +65,7 @@ pack-scripts:
 build_binary: version
 	MACOSX_DEPLOYMENT_TARGET=13.0 swift build -c release --arch arm64 --arch x86_64 --product checkin
 	@mkdir -p build
-	@/bin/cp ${SWIFT_BUILD_DIR}/checkin build/checkin
+	@/bin/cp "$$(MACOSX_DEPLOYMENT_TARGET=13.0 swift build -c release --arch arm64 --arch x86_64 --product checkin --show-bin-path)/checkin" build/checkin
 	@sudo chown root:wheel build/checkin
 	@sudo chmod 755 build/checkin
 
