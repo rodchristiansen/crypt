@@ -15,7 +15,7 @@ permissions:
 jobs:
   test:
     name: Build and test
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 20
 
     steps:
@@ -25,8 +25,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .build
-          key: swiftpm-${{ runner.os }}-${{ hashFiles('Package.resolved') }}
-          restore-keys: swiftpm-${{ runner.os }}-
+          key: swiftpm-macos-26-${{ hashFiles('Package.resolved') }}
+          restore-keys: swiftpm-macos-26-
 
       - name: Show toolchain
         run: swift --version
