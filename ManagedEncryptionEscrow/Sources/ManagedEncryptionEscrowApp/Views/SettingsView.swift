@@ -3,10 +3,12 @@
 //  Managed Encryption Escrow
 //
 //  Prefs tab: centred app header, then Crypt's preferences in two columns of
-//  cards, then a read-only list of Crypt's launchd jobs. Every field is
-//  read-only until an administrator unlocks the window; settings a profile
-//  manages show their managed value, disabled (gray), either way, and one
-//  banner under the header explains why instead of a caption on every field.
+//  cards, then a read-only list of Crypt's launchd jobs. Settings a profile
+//  manages show their managed value, disabled (gray), and one banner under
+//  the header explains why instead of a caption on every field; only MDM can
+//  change them. Any other field can be edited, and Save asks for an
+//  administrator at that moment. When a profile manages everything there is
+//  nothing to save, and the window is read-only under the banner.
 //
 
 import SwiftUI
@@ -15,8 +17,6 @@ import ManagedEncryptionEscrowXPC
 struct SettingsView: View {
     @Bindable var viewModel: SettingsViewModel
     @Environment(XPCClient.self) private var xpcClient
-
-    private var locked: Bool { !xpcClient.isUnlocked }
 
     var body: some View {
         ScrollView {
@@ -51,9 +51,12 @@ struct SettingsView: View {
                     ]
                 )
 
-                HStack {
+                HStack(spacing: 12) {
                     Spacer()
                     saveStatusLabel
+                    if !viewModel.allSettingsManaged {
+                        saveButtons
+                    }
                 }
                 .padding(.top, 4)
             }
@@ -89,35 +92,31 @@ struct SettingsView: View {
                 Link("Report Issue", destination: URL(string: "https://github.com/grahamgilbert/crypt/issues")!)
                     .font(.caption)
             }
-
-            lockButton
-                .padding(.top, 4)
         }
         .padding(.top, 8)
     }
 
-    // MARK: - Lock
+    // MARK: - Save
 
     @ViewBuilder
-    private var lockButton: some View {
-        if locked {
-            Button {
-                if xpcClient.unlock() { viewModel.load() }
-            } label: {
-                Label("Unlock to make changes", systemImage: "lock.fill")
-            }
-            .help("An administrator must authenticate before Crypt's settings can change")
-        } else {
-            Button {
-                xpcClient.lock()
-            } label: {
-                Label("Lock", systemImage: "lock.open.fill")
-            }
-            .help("Stop making changes")
+    private var saveButtons: some View {
+        let disabled = !viewModel.hasUnsavedChanges || viewModel.saveStatus == .saving
+        Button("Revert") {
+            viewModel.revert()
         }
+        .disabled(disabled)
+        .help("Discard the changes you have not saved")
+
+        Button("Save") {
+            Task { await viewModel.save() }
+        }
+        .keyboardShortcut("s", modifiers: .command)
+        .buttonStyle(.borderedProminent)
+        .disabled(disabled)
+        .help("An administrator name and password is needed to save")
     }
 
-    // MARK: - Auto-Save Status
+    // MARK: - Save Status
 
     @ViewBuilder
     private var saveStatusLabel: some View {
@@ -294,7 +293,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             content()
-                .disabled(managed || locked)
+                .disabled(managed)
         }
     }
 }

@@ -3,9 +3,9 @@
 //  Managed Encryption Escrow
 //
 //  Crypt's preferences for the Prefs tab. Values are read the way checkin
-//  reads them as root; managed keys are shown locked and never written.
-//  Every field is read-only until an administrator unlocks the window, and
-//  edits then auto-save through the privileged helper.
+//  reads them as root; managed keys are shown gray and never written. Any
+//  other field can be edited, and Save asks for an administrator before the
+//  privileged helper writes the change.
 //
 
 import Foundation
@@ -45,17 +45,17 @@ final class SettingsViewModel {
 
     // MARK: - Values
 
-    var serverURL = "" { didSet { scheduleAutoSave() } }
-    var skipUsersText = "" { didSet { scheduleAutoSave() } }
-    var validateKey = true { didSet { scheduleAutoSave() } }
-    var rotateUsedKey = true { didSet { scheduleAutoSave() } }
-    var removePlist = true { didSet { scheduleAutoSave() } }
-    var generateNewKey = false { didSet { scheduleAutoSave() } }
-    var keyEscrowInterval = 1 { didSet { scheduleAutoSave() } }
-    var serverTimeout = 30 { didSet { scheduleAutoSave() } }
-    var serverRetryAttempts = 3 { didSet { scheduleAutoSave() } }
-    var manageAuthMechs = true { didSet { scheduleAutoSave() } }
-    var logLevel = "INFO" { didSet { scheduleAutoSave() } }
+    var serverURL = ""
+    var skipUsersText = ""
+    var validateKey = true
+    var rotateUsedKey = true
+    var removePlist = true
+    var generateNewKey = false
+    var keyEscrowInterval = 1
+    var serverTimeout = 30
+    var serverRetryAttempts = 3
+    var manageAuthMechs = true
+    var logLevel = "INFO"
 
     /// Whether an API key is configured. Its value is never read into the window.
     enum SecretState: Equatable {
@@ -74,13 +74,13 @@ final class SettingsViewModel {
     }
     private(set) var saveStatus: SaveStatus = .idle
 
-    // MARK: - Auto-Save
+    // MARK: - Saving
 
     private let source: PreferenceSource
     private var xpcClient: XPCClient?
-    private var autoSaveTask: Task<Void, Never>?
-    private var isLoading = false
     private var saved = PreferenceSnapshot()
+    /// Asks for an administrator; replaced in tests.
+    var requestAuthorization: () -> AdminAuthorization? = { AdminAuthorization.request() }
 
     init(source: PreferenceSource = SystemPreferenceSource()) {
         self.source = source
@@ -90,14 +90,23 @@ final class SettingsViewModel {
         xpcClient = client
     }
 
-    private func scheduleAutoSave() {
-        guard !isLoading, let client = xpcClient, client.isUnlocked else { return }
-        autoSaveTask?.cancel()
-        autoSaveTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(0.75))
-            guard !Task.isCancelled, let self else { return }
-            await self.save()
-        }
+    /// True when an edit to a key no profile manages has not been saved.
+    var hasUnsavedChanges: Bool {
+        !Self.writes(from: saved, to: current, managed: managedKeys).isEmpty
+    }
+
+    /// True when a profile manages every key the window can edit, so there
+    /// is nothing to save and the window is read-only.
+    var allSettingsManaged: Bool {
+        CryptPreferenceKey.allCases
+            .filter { CryptPreferenceKey.isWritable($0.rawValue) }
+            .allSatisfy { managedKeys.contains($0.rawValue) }
+    }
+
+    /// Puts every field back to the saved value.
+    func revert() {
+        apply(saved)
+        if case .failed = saveStatus { saveStatus = .idle }
     }
 
     /// True when a profile forces at least one of Crypt's keys, the API key
@@ -114,9 +123,6 @@ final class SettingsViewModel {
     // MARK: - Load
 
     func load() {
-        isLoading = true
-        defer { isLoading = false }
-
         managedKeys = Set(CryptPreferenceKey.allCases.map(\.rawValue).filter(source.isManaged))
         let snapshot = Self.read(from: source)
         apply(snapshot)
@@ -260,7 +266,7 @@ final class SettingsViewModel {
     }
 
     func save() async {
-        guard let client = xpcClient, client.isUnlocked else { return }
+        guard let client = xpcClient else { return }
         let target = current
         let pending = Self.writes(from: saved, to: target, managed: managedKeys)
         guard !pending.isEmpty else {
@@ -270,6 +276,10 @@ final class SettingsViewModel {
             return
         }
 
+        // Ask at the moment of saving. Cancelling keeps the edits in place.
+        guard let authorization = requestAuthorization() else { return }
+        let auth = authorization.externalForm
+
         saveStatus = .saving
         var failed: [String] = []
         var applied = saved
@@ -277,15 +287,16 @@ final class SettingsViewModel {
             let ok: Bool
             let key: CryptPreferenceKey
             switch write {
-            case .bool(let k, let value): key = k; ok = await client.setBoolPreference(key: k, value: value)
-            case .int(let k, let value): key = k; ok = await client.setIntPreference(key: k, value: value)
-            case .string(let k, let value): key = k; ok = await client.setStringPreference(key: k, value: value)
-            case .array(let k, let value): key = k; ok = await client.setArrayPreference(key: k, value: value)
-            case .remove(let k): key = k; ok = await client.removePreference(key: k)
+            case .bool(let k, let value): key = k; ok = await client.setBoolPreference(key: k, value: value, authorization: auth)
+            case .int(let k, let value): key = k; ok = await client.setIntPreference(key: k, value: value, authorization: auth)
+            case .string(let k, let value): key = k; ok = await client.setStringPreference(key: k, value: value, authorization: auth)
+            case .array(let k, let value): key = k; ok = await client.setArrayPreference(key: k, value: value, authorization: auth)
+            case .remove(let k): key = k; ok = await client.removePreference(key: k, authorization: auth)
             }
             if ok { Self.record(write, into: &applied) } else { failed.append(key.rawValue) }
         }
         saved = applied
+        withExtendedLifetime(authorization) {}
 
         if !failed.isEmpty {
             saveStatus = .failed("Could not save \(failed.joined(separator: ", ")): the helper refused or is not available")

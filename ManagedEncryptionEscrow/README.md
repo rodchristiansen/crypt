@@ -7,12 +7,14 @@ A Prefs / Run / Logs window for Crypt, installed as
 and leaves all three unchanged.
 
 - **Prefs** shows Crypt's settings as `checkin` resolves them. A key a
-  configuration profile manages shows its managed value, locked. Every field
-  stays read-only until an administrator clicks **Unlock** and authenticates;
-  edits then save to `/Library/Preferences/com.grahamgilbert.crypt.plist`. The
+  configuration profile manages shows its managed value in gray, and only the
+  profile can change it. Any other field can be edited; **Save** asks for an
+  administrator name and password, then writes the change to
+  `/Library/Preferences/com.grahamgilbert.crypt.plist`. When a profile
+  manages every setting the window is read-only. The
   API key is shown only as set or not set, and the recovery key is never shown.
 - **Run** starts one of a fixed set of `checkin` runs: Verify, Escrow now,
-  Check login mechanisms, and Rotate if invalid (administrator only), and
+  Check login mechanisms, and Rotate if invalid (asks for an administrator), and
   streams the output. Anything shaped like a recovery key is redacted before
   it reaches the window.
 - **Logs** lists `crypt.log`, its daily rolls and the launchd log under
