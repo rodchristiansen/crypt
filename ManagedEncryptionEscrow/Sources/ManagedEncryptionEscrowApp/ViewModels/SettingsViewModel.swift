@@ -100,6 +100,13 @@ final class SettingsViewModel {
         }
     }
 
+    /// True when a profile forces at least one of Crypt's keys, the API key
+    /// included.
+    var hasManagedSettings: Bool {
+        if case .managed = apiKeyState { return true }
+        return !managedKeys.isEmpty
+    }
+
     func isManaged(_ key: CryptPreferenceKey) -> Bool {
         managedKeys.contains(key.rawValue)
     }

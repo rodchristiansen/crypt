@@ -3,8 +3,10 @@
 //  Managed Encryption Escrow
 //
 //  Prefs tab: centred app header, then Crypt's preferences in two columns of
-//  cards. Every field is read-only until an administrator unlocks the window;
-//  managed settings show their managed value, locked, either way.
+//  cards, then a read-only list of Crypt's launchd jobs. Every field is
+//  read-only until an administrator unlocks the window; settings a profile
+//  manages show their managed value, disabled (gray), either way, and one
+//  banner under the header explains why instead of a caption on every field.
 //
 
 import SwiftUI
@@ -20,6 +22,10 @@ struct SettingsView: View {
         ScrollView {
             VStack(spacing: 16) {
                 appInfoHeader
+
+                if viewModel.hasManagedSettings {
+                    ProfileManagedBanner()
+                }
 
                 Divider()
 
@@ -37,6 +43,13 @@ struct SettingsView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .top)
                 }
+
+                ServicesSection(
+                    prefixes: ["com.grahamgilbert.crypt"],
+                    extraDaemonDirectories: [
+                        Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LaunchDaemons").path
+                    ]
+                )
 
                 HStack {
                     Spacer()
@@ -155,8 +168,6 @@ struct SettingsView: View {
                 switch viewModel.apiKeyState {
                 case .managed:
                     Text("Set")
-                    Label("Managed", systemImage: "lock.fill")
-                        .font(.caption)
                         .foregroundStyle(.secondary)
                 case .set:
                     Text("Set")
@@ -284,11 +295,6 @@ struct SettingsView: View {
             }
             content()
                 .disabled(managed || locked)
-            if managed {
-                Label("Managed", systemImage: "lock.fill")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
         }
     }
 }
