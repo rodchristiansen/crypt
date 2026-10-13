@@ -3,7 +3,8 @@
 //  Managed Encryption Escrow
 //
 //  Prefs tab: centred app header, then Crypt's preferences in two columns of
-//  cards, then a read-only list of Crypt's launchd jobs. Settings a profile
+//  cards, then a read-only list of Crypt's launchd jobs, then a footer with
+//  the version, the documentation links and Save. Settings a profile
 //  manages show their managed value, disabled (gray), and one banner under
 //  the header explains why instead of a caption on every field; only MDM can
 //  change them. Any other field can be edited, and Save asks for an
@@ -17,6 +18,11 @@ import ManagedEncryptionEscrowXPC
 struct SettingsView: View {
     @Bindable var viewModel: SettingsViewModel
     @Environment(XPCClient.self) private var xpcClient
+    @FocusState private var focusedField: Field?
+
+    private enum Field: Hashable {
+        case serverURL, skipUsers
+    }
 
     var body: some View {
         ScrollView {
@@ -52,6 +58,13 @@ struct SettingsView: View {
                 )
 
                 HStack(spacing: 12) {
+                    Text(versionText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Link("Documentation", destination: URL(string: "https://github.com/rodchristiansen/crypt#readme")!)
+                        .font(.caption)
+                    Link("Report Issue", destination: URL(string: "https://github.com/grahamgilbert/crypt/issues")!)
+                        .font(.caption)
                     Spacer()
                     saveStatusLabel
                     if !viewModel.allSettingsManaged {
@@ -65,7 +78,17 @@ struct SettingsView: View {
         .onAppear {
             viewModel.configure(client: xpcClient)
             viewModel.load()
+            // Open with nothing focused, so no control draws a focus ring
+            // until the user clicks or presses Tab.
+            Task { @MainActor in focusedField = nil }
         }
+    }
+
+    private var versionText: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let marketing = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        return "v\(marketing) (\(build))"
     }
 
     // MARK: - App Info Header
@@ -85,13 +108,6 @@ struct SettingsView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-
-            HStack(spacing: 16) {
-                Link("Documentation", destination: URL(string: "https://github.com/rodchristiansen/crypt#readme")!)
-                    .font(.caption)
-                Link("Report Issue", destination: URL(string: "https://github.com/grahamgilbert/crypt/issues")!)
-                    .font(.caption)
-            }
         }
         .padding(.top, 8)
     }
@@ -148,6 +164,7 @@ struct SettingsView: View {
             settingRow(.serverURL, label: "Crypt server URL") {
                 TextField("https://crypt.example.com", text: $viewModel.serverURL)
                     .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .serverURL)
             }
             if !SettingsViewModel.isAcceptableServerURL(viewModel.serverURL) {
                 Text("Must be an https address.")
@@ -222,6 +239,7 @@ struct SettingsView: View {
             settingRow(.skipUsers, label: "Skip users") {
                 TextField("admin, support", text: $viewModel.skipUsersText)
                     .textFieldStyle(.roundedBorder)
+                    .focused($focusedField, equals: .skipUsers)
             }
             Text("Crypt never enables FileVault at login for these accounts.")
                 .font(.caption)
