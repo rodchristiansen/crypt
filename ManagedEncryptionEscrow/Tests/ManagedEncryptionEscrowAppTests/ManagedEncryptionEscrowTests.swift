@@ -207,6 +207,52 @@ private struct FakeSource: PreferenceSource {
         #expect(SettingsViewModel.writes(from: new, to: new, managed: []).isEmpty)
     }
 
+    @Test func editsAreUnsavedUntilSavedAndRevertRestoresThem() {
+        let model = SettingsViewModel(source: FakeSource(values: ["KeyEscrowInterval": 4]))
+        model.load()
+        #expect(!model.hasUnsavedChanges)
+
+        model.keyEscrowInterval = 8
+        model.skipUsersText = "admin"
+        #expect(model.hasUnsavedChanges)
+
+        model.revert()
+        #expect(!model.hasUnsavedChanges)
+        #expect(model.keyEscrowInterval == 4)
+        #expect(model.skipUsersText.isEmpty)
+    }
+
+    @Test func anEditToAManagedKeyIsNothingToSave() {
+        let model = SettingsViewModel(source: FakeSource(values: ["ServerURL": "https://crypt.example.com"], managed: ["ServerURL"]))
+        model.load()
+        model.serverURL = "https://other.example.com"
+        #expect(!model.hasUnsavedChanges)
+        #expect(!model.allSettingsManaged)
+    }
+
+    @Test func everyKeyManagedLeavesTheWindowReadOnly() {
+        let model = SettingsViewModel(source: FakeSource(managed: Set(CryptPreferenceKey.allCases.map(\.rawValue))))
+        model.load()
+        #expect(model.allSettingsManaged)
+    }
+
+    @Test func cancellingTheAdministratorPromptKeepsTheEdits() async {
+        let model = SettingsViewModel(source: FakeSource())
+        model.configure(client: XPCClient())
+        var asked = 0
+        model.requestAuthorization = { asked += 1; return nil }
+        model.load()
+
+        await model.save()
+        #expect(asked == 0, "nothing to save, so no prompt")
+
+        model.validateKey = false
+        await model.save()
+        #expect(asked == 1)
+        #expect(model.hasUnsavedChanges)
+        #expect(model.saveStatus == .idle)
+    }
+
     @Test func parsesSkipUsers() {
         #expect(SettingsViewModel.parseUsers(" admin, support\nadmin  guest,,") == ["admin", "support", "guest"])
         #expect(SettingsViewModel.parseUsers("").isEmpty)

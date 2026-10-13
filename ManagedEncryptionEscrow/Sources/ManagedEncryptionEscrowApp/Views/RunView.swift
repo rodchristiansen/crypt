@@ -51,7 +51,8 @@ struct RunView: View {
 
             HStack(spacing: 6) {
                 if mode.requiresAdmin {
-                    Image(systemName: xpcClient.isUnlocked ? "lock.open.fill" : "lock.fill")
+                    Image(systemName: "lock.fill")
+                        .help("Asks for an administrator when the run starts")
                         .foregroundStyle(.secondary)
                 }
                 Text(mode.summary)

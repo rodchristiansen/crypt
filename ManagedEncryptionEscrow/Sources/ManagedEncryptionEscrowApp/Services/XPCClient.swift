@@ -17,12 +17,11 @@ final class XPCClient: NSObject {
     var lastExitCode: Int32?
     var helperStatus: HelperStatus = .unknown
     var connectionError: String?
-    /// True once an administrator has authenticated in this window.
-    var isUnlocked = false
 
     private var connection: NSXPCConnection?
-    private let admin = AdminAuthorization()
-    private var authorizationData: Data { admin.externalForm ?? Data() }
+    /// Held while an administrator-only run is in flight, because the helper
+    /// reads it when the run starts; released when the run completes.
+    private var runAuthorization: AdminAuthorization?
 
     struct OutputLine: Identifiable {
         let id = UUID()
@@ -79,26 +78,16 @@ final class XPCClient: NSObject {
         connection = nil
     }
 
-    // MARK: - Administrator
-
-    /// Prompts for an administrator. Prefs become editable and Rotate
-    /// available until `lock()` or the window closes.
-    @discardableResult
-    func unlock() -> Bool {
-        isUnlocked = admin.unlock()
-        return isUnlocked
-    }
-
-    func lock() {
-        admin.lock()
-        isUnlocked = false
-    }
-
     // MARK: - Runs
 
     func run(mode: RunMode) {
         guard !isRunning else { return }
-        if mode.requiresAdmin && !isUnlocked && !unlock() { return }
+        var authorization = Data()
+        if mode.requiresAdmin {
+            guard let grant = AdminAuthorization.request() else { return }
+            runAuthorization = grant
+            authorization = grant.externalForm
+        }
 
         outputLines.removeAll()
         lastExitCode = nil
@@ -106,7 +95,6 @@ final class XPCClient: NSObject {
 
         isRunning = true
         connect()
-        let authorization = mode.requiresAdmin ? authorizationData : Data()
         helperProxy { proxy in
             proxy.run(mode: mode.rawValue, authorization: authorization)
         }
@@ -118,33 +106,32 @@ final class XPCClient: NSObject {
         }
         isRunning = false
         lastExitCode = nil
+        runAuthorization = nil
         outputLines.append(OutputLine(text: "WARN: Run stopped by user.", level: .warning))
     }
 
     // MARK: - Preference Management
 
-    func setBoolPreference(key: CryptPreferenceKey, value: Bool) async -> Bool {
-        let auth = authorizationData
+    // Each write carries the authorization Prefs asked for when the user
+    // saved; the helper refuses a write without one.
+
+    func setBoolPreference(key: CryptPreferenceKey, value: Bool, authorization auth: Data) async -> Bool {
         return await callHelper { proxy, reply in proxy.setBoolPreference(key: key.rawValue, value: value, authorization: auth, withReply: reply) }
     }
 
-    func setIntPreference(key: CryptPreferenceKey, value: Int) async -> Bool {
-        let auth = authorizationData
+    func setIntPreference(key: CryptPreferenceKey, value: Int, authorization auth: Data) async -> Bool {
         return await callHelper { proxy, reply in proxy.setIntPreference(key: key.rawValue, value: value, authorization: auth, withReply: reply) }
     }
 
-    func setStringPreference(key: CryptPreferenceKey, value: String) async -> Bool {
-        let auth = authorizationData
+    func setStringPreference(key: CryptPreferenceKey, value: String, authorization auth: Data) async -> Bool {
         return await callHelper { proxy, reply in proxy.setStringPreference(key: key.rawValue, value: value, authorization: auth, withReply: reply) }
     }
 
-    func setArrayPreference(key: CryptPreferenceKey, value: [String]) async -> Bool {
-        let auth = authorizationData
+    func setArrayPreference(key: CryptPreferenceKey, value: [String], authorization auth: Data) async -> Bool {
         return await callHelper { proxy, reply in proxy.setArrayPreference(key: key.rawValue, value: value, authorization: auth, withReply: reply) }
     }
 
-    func removePreference(key: CryptPreferenceKey) async -> Bool {
-        let auth = authorizationData
+    func removePreference(key: CryptPreferenceKey, authorization auth: Data) async -> Bool {
         return await callHelper { proxy, reply in proxy.removePreference(key: key.rawValue, authorization: auth, withReply: reply) }
     }
 
@@ -201,6 +188,7 @@ final class XPCClient: NSObject {
         if isRunning {
             outputLines.append(OutputLine(text: "ERROR: \(message). The helper refused the connection or is not running; see the system log for com.grahamgilbert.crypt.helper.", level: .error))
             isRunning = false
+            runAuthorization = nil
         }
     }
 
@@ -251,6 +239,7 @@ extension XPCClient: HelperXPCClientProtocol {
         Task { @MainActor in
             isRunning = false
             lastExitCode = exitCode
+            runAuthorization = nil
         }
     }
 

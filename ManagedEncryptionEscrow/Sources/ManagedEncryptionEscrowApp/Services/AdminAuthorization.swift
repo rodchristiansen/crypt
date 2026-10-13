@@ -2,31 +2,37 @@
 //  AdminAuthorization.swift
 //  Managed Encryption Escrow
 //
-//  Asks an administrator to authenticate and keeps the resulting
-//  authorization reference, which the helper checks before any change.
-//  This is the window's Unlock: Prefs stay read-only, and Rotate stays
-//  unavailable, until an administrator has authenticated.
+//  One administrator authorization, asked for at the moment it is needed:
+//  when Prefs saves a change, or when Rotate starts. The helper checks the
+//  authorization before it acts. Nothing stays unlocked: the reference is
+//  destroyed as soon as the save or run that asked for it is done, so the
+//  next change asks again.
 //
 
 import Foundation
 import Security
 import ManagedEncryptionEscrowXPC
 
-@MainActor
 final class AdminAuthorization {
-    private var authRef: AuthorizationRef?
+    private let authRef: AuthorizationRef
 
-    /// The external form the helper accepts, or nil while locked.
-    private(set) var externalForm: Data?
+    /// The external form the helper accepts.
+    let externalForm: Data
 
-    var isUnlocked: Bool { externalForm != nil }
+    private init(authRef: AuthorizationRef, externalForm: Data) {
+        self.authRef = authRef
+        self.externalForm = externalForm
+    }
 
-    /// Shows the system's administrator prompt. Returns true when an
-    /// administrator authenticated.
-    func unlock() -> Bool {
-        lock()
+    deinit {
+        AuthorizationFree(authRef, [.destroyRights])
+    }
+
+    /// Shows the system's administrator prompt. Returns nil when the user
+    /// cancels or the credentials are not an administrator's.
+    static func request() -> AdminAuthorization? {
         var ref: AuthorizationRef?
-        guard AuthorizationCreate(nil, nil, [], &ref) == errAuthorizationSuccess, let ref else { return false }
+        guard AuthorizationCreate(nil, nil, [], &ref) == errAuthorizationSuccess, let ref else { return nil }
 
         let status = EscrowConstants.adminRight.withCString { name -> OSStatus in
             var item = AuthorizationItem(name: name, valueLength: 0, value: nil, flags: 0)
@@ -37,25 +43,14 @@ final class AdminAuthorization {
         }
         guard status == errAuthorizationSuccess else {
             AuthorizationFree(ref, [])
-            return false
+            return nil
         }
 
         var form = AuthorizationExternalForm()
         guard AuthorizationMakeExternalForm(ref, &form) == errAuthorizationSuccess else {
             AuthorizationFree(ref, [.destroyRights])
-            return false
+            return nil
         }
-        authRef = ref
-        externalForm = withUnsafeBytes(of: &form) { Data($0) }
-        return true
-    }
-
-    /// Discards the authorization, so a further change needs a new prompt.
-    func lock() {
-        if let authRef {
-            AuthorizationFree(authRef, [.destroyRights])
-        }
-        authRef = nil
-        externalForm = nil
+        return AdminAuthorization(authRef: ref, externalForm: withUnsafeBytes(of: &form) { Data($0) })
     }
 }
